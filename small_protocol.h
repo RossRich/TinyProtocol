@@ -9,19 +9,17 @@
 // --- Константы ---
 #define PROTO_SYNC 0xAA
 #define PROTO_MAX_FRAME 32U
-#define PROTO_MAX_HEADER 4U  // SYS_ID | TARGET_ID | CMD | LEN
+#define PROTO_MAX_HEADER 4U  // SYNC | SYS_ID | TARGET_ID | CMD | LEN
 #define PROTO_MAX_DATA 26U   // PROTO_MAX_FRAME - 1(sync) - 4(meta) - 1(CRC)
 
-#define PROTO_SYNK_POS 0U
+#define PROTO_SYNC_POS 0U
 #define PROTO_SYS_ID_POS 1U
 #define PROTO_TARGET_ID_POS 2U
 #define PROTO_CMD_POS 3U
 #define PROTO_LEN_POS 4U
 #define PROTO_DATA_POS 5U
 
-// --- Адресация ---
 #define ADDR_BROADCAST 0xFF
-#define ADDR_MASTER 0x01
 
 typedef uint8_t proto_cmd_t;
 
@@ -39,6 +37,75 @@ typedef struct {
   uint8_t data[PROTO_MAX_DATA];
   uint8_t crc;
 } proto_t;
+
+// --- Парсер потока (конечный автомат) ---
+typedef enum {
+    PROTO_STATE_IDLE,        // Ожидание SYNC
+    PROTO_STATE_SYNC_FOUND,  // SYNC найден, ожидаем заголовок
+    PROTO_STATE_HEADER,      // Чтение заголовка (FROM, TO, CMD, LEN)
+    PROTO_STATE_DATA,        // Чтение данных
+    PROTO_STATE_CRC,         // Чтение CRC
+    PROTO_STATE_COMPLETE,    // Кадр полностью принят
+    PROTO_STATE_ERROR        // Ошибка (таймаут, неверный формат)
+} proto_parser_state_t;
+
+// Результат обработки байта
+typedef enum {
+    PROTO_PARSER_OK,           // Байт обработан, продолжать
+    PROTO_PARSER_FRAME_READY,  // Кадр полностью принят и распарсен
+    PROTO_PARSER_ERROR,        // Ошибка (CRC, формат, переполнение)
+    PROTO_PARSER_NEED_MORE     // Нужно больше данных (промежуточное состояние)
+} proto_parser_result_t;
+
+// Контекст парсера
+typedef struct {
+    proto_parser_state_t state;          // Текущее состояние
+    uint8_t buffer[PROTO_MAX_FRAME];     // Буфер для накопления кадра (включая SYNC)
+    uint8_t pos;                         // Текущая позиция в буфере
+    uint8_t expected_len;                // Ожидаемая длина данных (из поля LEN)
+    uint32_t timeout_counter;            // Счетчик таймаута (опционально)
+} proto_parser_t;
+
+/**
+ * @brief Инициализирует парсер перед началом работы.
+ * @param parser Указатель на структуру парсера.
+ * @note Приводит парсер в состояние IDLE и обнуляет внутренние счётчики.
+ */
+void proto_parser_init(proto_parser_t* parser);
+
+/**
+ * @brief Сбрасывает парсер в состояние IDLE.
+ * @param parser Указатель на структуру парсера.
+ * @details Сброс позволяет повторно использовать парсер после ошибки или успешного приёма кадра.
+ */
+void proto_parser_reset(proto_parser_t* parser);
+
+/**
+ * @brief Обрабатывает один байт из входного потока.
+ * @param parser Указатель на структуру парсера.
+ * @param byte Принятый байт.
+ * @param out_msg Указатель на структуру сообщения для заполнения (может быть NULL).
+ * @return Результат обработки:
+ *   - PROTO_PARSER_OK: байт обработан, кадр ещё не готов.
+ *   - PROTO_PARSER_FRAME_READY: кадр полностью принят и распарсен, out_msg заполнен.
+ *   - PROTO_PARSER_ERROR: ошибка (CRC, формат, переполнение).
+ *   - PROTO_PARSER_NEED_MORE: ожидание дополнительных данных (промежуточное состояние).
+ * @note Если out_msg != NULL и возвращено PROTO_PARSER_FRAME_READY, структура out_msg содержит распарсенное сообщение.
+ */
+proto_parser_result_t proto_parser_feed(proto_parser_t* parser, uint8_t byte, proto_msg_t* out_msg);
+
+/**
+ * @brief Пакетная обработка массива байт.
+ * @param parser Указатель на структуру парсера.
+ * @param data Указатель на массив байт.
+ * @param len Длина массива.
+ * @param out_msg Указатель на структуру сообщения для заполнения (может быть NULL).
+ * @return Количество обработанных байт до момента, когда кадр стал готовым или произошла ошибка.
+ * @details Функция последовательно вызывает proto_parser_feed для каждого байта, пока не будет получен
+ *   результат PROTO_PARSER_FRAME_READY или PROTO_PARSER_ERROR. Возвращает число байт, которые были
+ *   обработаны до этого момента. Если out_msg != NULL и кадр готов, out_msg заполняется.
+ */
+size_t proto_parser_feed_batch(proto_parser_t* parser, const uint8_t* data, size_t len, proto_msg_t* out_msg);
 
 #ifdef __cplusplus
 extern "C" {
