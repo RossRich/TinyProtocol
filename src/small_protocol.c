@@ -44,7 +44,7 @@ int proto_unpack(const proto_t *context, proto_msg_t *out_msg) {
   const uint8_t *start_msg = context->buffer + 1; // исключаем sync
   const uint8_t msg_len = PROTO_MAX_HEADER + msg_payload_len;
   const uint8_t crc = proto_crc8(start_msg, msg_len);
-  const msg_crc_pos = PROTO_PAYLOAD_POS + msg_payload_len + 1;
+  const uint8_t msg_crc_pos = PROTO_PAYLOAD_POS + msg_payload_len + 1;
   if (context->buffer[msg_crc_pos] != crc) {
     return -2;
   }
