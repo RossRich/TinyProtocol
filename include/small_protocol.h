@@ -4,14 +4,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// [SYNC][SYS_ID][TARGET_ID][CMD][LEN][DATA...][CRC]
-
-// --- Константы ---
 #define PROTO_SYNC 0xAA
 #define PROTO_MAX_FRAME 32U
 #define PROTO_MAX_HEADER 5U   // SYNC | SYS_ID | TARGET_ID | CMD | LEN
 #define PROTO_MAX_PAYLOAD 26U // PROTO_MAX_FRAME - 1(sync) - 4(meta) - 1(CRC)
 
+// [SYNC][SYS_ID][TARGET_ID][CMD][LEN][DATA...][CRC]
 #define PROTO_SYNC_POS 0U
 #define PROTO_SYS_ID_POS 1U
 #define PROTO_TARGET_ID_POS 2U
@@ -59,6 +57,10 @@ typedef struct {
   uint32_t timeout_counter;        // Счетчик таймаута (опционально)
 } proto_t;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief Инициализирует парсер перед началом работы.
  * @param context Указатель на структуру парсера.
@@ -88,23 +90,6 @@ void proto_parser_reset(proto_t *context);
 proto_parser_result_t proto_parser_feed(proto_t *context, uint8_t byte, proto_msg_t *out_msg);
 
 /**
- * @brief Пакетная обработка массива байт.
- * @param context Указатель на структуру парсера.
- * @param data Указатель на массив байт.
- * @param len Длина массива.
- * @param out_msg Указатель на структуру сообщения для заполнения (может быть NULL).
- * @return Количество обработанных байт до момента, когда кадр стал готовым или произошла ошибка.
- * @details Функция последовательно вызывает proto_parser_feed для каждого байта, пока не будет получен
- *   результат PROTO_PARSER_FRAME_READY или PROTO_PARSER_ERROR. Возвращает число байт, которые были
- *   обработаны до этого момента. Если out_msg != NULL и кадр готов, out_msg заполняется.
- */
-size_t proto_parser_feed_batch(proto_t *context, const uint8_t *data, size_t len, proto_msg_t *out_msg);
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/**
  * @brief Вычисляет CRC-8 (Dallas/Maxim, полином 0x31).
  * @param buf Указатель на данные.
  * @param len Длина данных в байтах.
@@ -116,20 +101,20 @@ uint8_t proto_crc8(const uint8_t *buf, size_t len);
  * @brief Упаковывает логическое сообщение в байтовый кадр для передачи по UART.
  * @param msg Указатель на структуру сообщения.
  * @param out_buf Буфер для записи кадра (должен иметь размер не менее PROTO_MAX_FRAME).
- * @return Длина сформированного кадра (>0) или -1 при ошибке (неверные параметры).
+ * @return Кол-во байт записанных в буфер
  */
-int proto_pack(const proto_msg_t *msg, uint8_t *out_buf);
+size_t proto_pack(const proto_msg_t *msg, uint8_t *out_buf);
 
 /**
  * @brief Распаковывает байтовый кадр в логическое сообщение.
  * @param context Указатель на структуру кадра (заголовок, данные, CRC).
  * @param out_msg Указатель на структуру сообщения для заполнения.
  * @return Результат распаковки:
- *   - 1: OK (кадр корректен).
- *   - -1: ошибка формата или длины.
- *   - -2: ошибка CRC.
+ *    1: OK (кадр корректен).
+ *    -1: ошибка формата или длины.
+ *    -2: ошибка CRC.
  */
-int proto_unpack(const proto_t *context, proto_msg_t *out_msg);
+int8_t proto_unpack(const proto_t *context, proto_msg_t *out_msg);
 
 #ifdef __cplusplus
 }

@@ -24,7 +24,7 @@ static int compare_msg(const proto_msg_t* a, const proto_msg_t* b) {
 // ============================================================================
 // Test cases
 // ============================================================================
-static char* test_parser_init(void) {
+static char* test_parser_init() {
     proto_t parser;
     proto_parser_init(&parser);
     mu_assert("parser state should be IDLE", parser.state == PROTO_STATE_IDLE);
@@ -33,7 +33,7 @@ static char* test_parser_init(void) {
     return 0;
 }
 
-static char* test_parser_reset(void) {
+static char* test_parser_reset() {
     proto_t parser;
     proto_parser_init(&parser);
     // Simulate partial parsing
@@ -47,11 +47,10 @@ static char* test_parser_reset(void) {
     return 0;
 }
 
-static char* test_correct_frame(void) {
+static char* test_correct_frame() {
     proto_t parser;
     proto_parser_init(&parser);
     
-    // Create a test frame using proto_pack
     proto_msg_t msg = {
         .sys_id = 0x01,
         .target_id = 0x02,
@@ -60,13 +59,13 @@ static char* test_correct_frame(void) {
         .data = {0x11, 0x22, 0x33}
     };
     uint8_t buffer[PROTO_MAX_FRAME];
-    int packed_len = proto_pack(&msg, buffer);
+    size_t packed_len = proto_pack(&msg, buffer);
     mu_assert("packing should succeed", packed_len > 0);
     
     // Feed bytes target_id parser
     proto_msg_t parsed_msg;
     proto_parser_result_t res;
-    for (int i = 0; i < packed_len; ++i) {
+    for (size_t i = 0; i < packed_len; ++i) {
         res = proto_parser_feed(&parser, buffer[i], &parsed_msg);
         if (i == packed_len - 1) {
             mu_assert("last byte should yield FRAME_READY", res == PROTO_PARSER_FRAME_READY);
@@ -82,7 +81,7 @@ static char* test_correct_frame(void) {
     return 0;
 }
 
-static char* test_crc_error(void) {
+static char* test_crc_error() {
     proto_t parser;
     proto_parser_init(&parser);
     
@@ -104,7 +103,7 @@ static char* test_crc_error(void) {
     return 0;
 }
 
-static char* test_overflow_data(void) {
+static char* test_overflow_data() {
     proto_t parser;
     proto_parser_init(&parser);
     
@@ -126,7 +125,7 @@ static char* test_overflow_data(void) {
     return 0;
 }
 
-static char* test_sync_loss(void) {
+static char* test_sync_loss() {
     proto_t parser;
     proto_parser_init(&parser);
     
@@ -149,46 +148,20 @@ static char* test_sync_loss(void) {
     return 0;
 }
 
-static char* test_batch_processing(void) {
-    proto_t parser;
-    proto_parser_init(&parser);
-    
-    // Create a frame
-    proto_msg_t msg = {
-        .sys_id = 0x10,
-        .target_id = 0x20,
-        .cmd = 0x30,
-        .len = 2,
-        .data = {0xAA, 0xBB}
-    };
-    uint8_t buffer[PROTO_MAX_FRAME];
-    int packed_len = proto_pack(&msg, buffer);
-    mu_assert("packing should succeed", packed_len > 0);
-    
-    // Feed batch
-    proto_msg_t parsed_msg;
-    size_t processed = proto_parser_feed_batch(&parser, buffer, packed_len, &parsed_msg);
-    mu_assert("batch should process entire frame", processed == (size_t)packed_len);
-    mu_assert("parsed message should match", compare_msg(&parsed_msg, &msg));
-    mu_assert("parser should be in IDLE", parser.state == PROTO_STATE_IDLE);
-    return 0;
-}
-
 // ============================================================================
 // Test runner
 // ============================================================================
-static char* all_tests(void) {
+static char* all_tests() {
     mu_run_test(test_parser_init);
     mu_run_test(test_parser_reset);
     mu_run_test(test_correct_frame);
     mu_run_test(test_crc_error);
     mu_run_test(test_overflow_data);
     mu_run_test(test_sync_loss);
-    mu_run_test(test_batch_processing);
     return 0;
 }
 
-int main(void) {
+int main() {
     char* result = all_tests();
     if (result != 0) {
         printf("TEST FAILED: %s\n", result);

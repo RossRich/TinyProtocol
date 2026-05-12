@@ -12,9 +12,9 @@ uint8_t proto_crc8(const uint8_t *buf, size_t len) {
   return crc;
 }
 
-int proto_pack(const proto_msg_t *msg, uint8_t *out_buf) {
-  if (!msg || !out_buf || msg->len > PROTO_MAX_PAYLOAD) {
-    return -1;
+size_t proto_pack(const proto_msg_t *msg, uint8_t *out_buf) {
+  if (!msg || !out_buf || (msg->len > PROTO_MAX_PAYLOAD)) {
+    return 0;
   }
 
   // TODO: ЗАМЕНИТЬ КОНСТАНТЫ
@@ -28,10 +28,10 @@ int proto_pack(const proto_msg_t *msg, uint8_t *out_buf) {
   memcpy(out_buf + 5, msg->data, msg->len);
   out_buf[5 + msg->len] = proto_crc8(out_buf + 1, 4 + msg->len); // CRC по FROM..DATA
 
-  return 5 + msg->len + 1; // sync + header + data + crc
+  return PROTO_MAX_HEADER + msg->len + 1; // header + data + crc
 }
 
-int proto_unpack(const proto_t *context, proto_msg_t *out_msg) {
+int8_t proto_unpack(const proto_t *context, proto_msg_t *out_msg) {
   if (!context || !out_msg) {
     return -1;
   }
@@ -62,6 +62,7 @@ void proto_parser_init(proto_t *parser) {
   if (!parser) {
     return;
   }
+
   parser->state = PROTO_STATE_IDLE;
   parser->pos = 0;
   parser->expected_len = 0;
@@ -169,25 +170,6 @@ proto_parser_result_t proto_parser_feed(proto_t *parser, uint8_t byte, proto_msg
     parser->state = PROTO_STATE_ERROR;
     return PROTO_PARSER_ERROR;
   }
-}
 
-size_t proto_parser_feed_batch(proto_t *parser, const uint8_t *data, size_t len, proto_msg_t *out_msg) {
-  if (!parser || !data)
-    return 0;
-
-  size_t i;
-  for (i = 0; i < len; ++i) {
-    proto_parser_result_t res = proto_parser_feed(parser, data[i], out_msg);
-    if (res == PROTO_PARSER_FRAME_READY) {
-      // Кадр готов, возвращаем количество обработанных байт (включая текущий)
-      return i + 1;
-    }
-    if (res == PROTO_PARSER_ERROR) {
-      // Ошибка, возвращаем количество обработанных байт до ошибки
-      return i + 1;
-    }
-    // Продолжаем обработку
-  }
-  // Все байты обработаны, кадр не готов
-  return i;
+  return paese_res;
 }
