@@ -97,7 +97,7 @@ static char* test_crc_error() {
         res = proto_parser_feed(&parser, corrupt_frame[i], NULL);
         if (i == sizeof(corrupt_frame) - 1) {
             mu_assert("wrong CRC should cause ERROR", res == PROTO_PARSER_ERROR);
-            mu_assert("parser should be in ERROR state", parser.state == PROTO_STATE_ERROR);
+            mu_assert("parser should be in ERROR state", parser.state == PROTO_STATE_IDLE);
         }
     }
     return 0;

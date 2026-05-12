@@ -32,12 +32,9 @@ typedef struct {
 // Парсер потока (конечный автомат)
 typedef enum {
   PROTO_STATE_IDLE,       // Ожидание SYNC
-  PROTO_STATE_SYNC_FOUND, // SYNC найден, ожидаем заголовок
   PROTO_STATE_HEADER,     // Чтение заголовка (FROM, TO, CMD, LEN)
   PROTO_STATE_DATA,       // Чтение данных
   PROTO_STATE_CRC,        // Чтение CRC
-  PROTO_STATE_COMPLETE,   // Кадр полностью принят
-  PROTO_STATE_ERROR       // Ошибка (таймаут, неверный формат)
 } proto_parser_state_t;
 
 // Результат обработки байта

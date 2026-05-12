@@ -17,16 +17,14 @@ size_t proto_pack(const proto_msg_t *msg, uint8_t *out_buf) {
     return 0;
   }
 
-  // TODO: ЗАМЕНИТЬ КОНСТАНТЫ
-  // return size_t
-
-  out_buf[0] = PROTO_SYNC;
-  out_buf[1] = msg->sys_id;
-  out_buf[2] = msg->target_id;
-  out_buf[3] = msg->cmd;
-  out_buf[4] = msg->len;
-  memcpy(out_buf + 5, msg->data, msg->len);
-  out_buf[5 + msg->len] = proto_crc8(out_buf + 1, 4 + msg->len); // CRC по FROM..DATA
+  uint8_t idx = 0;
+  out_buf[idx++] = PROTO_SYNC;
+  out_buf[idx++] = msg->sys_id;
+  out_buf[idx++] = msg->target_id;
+  out_buf[idx++] = msg->cmd;
+  out_buf[idx++] = msg->len;
+  memcpy(out_buf + PROTO_PAYLOAD_POS, msg->data, msg->len);
+  out_buf[PROTO_PAYLOAD_POS + msg->len] = proto_crc8(out_buf + 1, PROTO_MAX_HEADER - 1 + msg->len); // CRC по FROM..DATA
 
   return PROTO_MAX_HEADER + msg->len + 1; // header + data + crc
 }
@@ -42,7 +40,7 @@ int8_t proto_unpack(const proto_t *context, proto_msg_t *out_msg) {
   }
 
   const uint8_t *start_msg = context->buffer + 1; // исключаем sync
-  const uint8_t msg_len = PROTO_MAX_HEADER + msg_payload_len;
+  const uint8_t msg_len = PROTO_MAX_HEADER + msg_payload_len - 1;
   const uint8_t crc = proto_crc8(start_msg, msg_len);
   const uint8_t msg_crc_pos = PROTO_PAYLOAD_POS + msg_payload_len + 1;
   if (context->buffer[msg_crc_pos] != crc) {
@@ -58,118 +56,98 @@ int8_t proto_unpack(const proto_t *context, proto_msg_t *out_msg) {
   return 1;
 }
 
-void proto_parser_init(proto_t *parser) {
-  if (!parser) {
+void proto_parser_init(proto_t *context) {
+  if (!context) {
     return;
   }
 
-  parser->state = PROTO_STATE_IDLE;
-  parser->pos = 0;
-  parser->expected_len = 0;
-  parser->timeout_counter = 0;
-  parser->buffer[0] = 0;
+  context->state = PROTO_STATE_IDLE;
+  context->pos = 0;
+  context->expected_len = 0;
+  context->timeout_counter = 0;
+  context->buffer[0] = 0;
 }
 
-void proto_parser_reset(proto_t *parser) {
-  if (!parser) {
+void proto_parser_reset(proto_t *context) {
+  if (!context) {
     return;
   }
 
-  parser->state = PROTO_STATE_IDLE;
-  parser->pos = 0;
-  parser->expected_len = 0;
-  parser->timeout_counter = 0;
+  context->state = PROTO_STATE_IDLE;
+  context->pos = 0;
+  context->expected_len = 0;
+  context->timeout_counter = 0;
 }
 
-proto_parser_result_t proto_parser_feed(proto_t *parser, uint8_t byte, proto_msg_t *out_msg) {
-  if (!parser) {
+proto_parser_result_t proto_parser_feed(proto_t *context, uint8_t byte, proto_msg_t *out_msg) {
+  if (!context) {
     return PROTO_PARSER_ERROR;
   }
 
-  switch (parser->state) {
+  proto_parser_result_t parse_res = PROTO_PARSER_OK;
+
+  switch (context->state) {
   case PROTO_STATE_IDLE:
     if (byte == PROTO_SYNC) {
-      parser->buffer[0] = byte;
-      parser->pos = 1;
-      parser->state = PROTO_STATE_HEADER;
+      context->buffer[0] = byte;
+      context->pos = 1;
+      context->state = PROTO_STATE_HEADER;
     }
-    return PROTO_PARSER_OK;
+    break;
 
   case PROTO_STATE_HEADER:
-    // Накопление заголовка (FROM, TO, CMD, LEN)
-    // Заголовок занимает байты с PROTO_SYS_ID_POS (1) до PROTO_LEN_POS (4)
-    // Всего 4 байта
-    if (parser->pos < PROTO_PAYLOAD_POS) { // DATA_POS = 5, значит позиции 1-4
-      parser->buffer[parser->pos++] = byte;
-      if (parser->pos == PROTO_PAYLOAD_POS) {
-        // Все байты заголовка получены, извлекаем LEN
-        parser->expected_len = parser->buffer[PROTO_LEN_POS];
-        if (parser->expected_len > PROTO_MAX_PAYLOAD) {
-          parser->state = PROTO_STATE_ERROR;
-          return PROTO_PARSER_ERROR;
-        }
-        if (parser->expected_len == 0) {
-          // Нет данных, переходим к ожиданию CRC
-          parser->state = PROTO_STATE_CRC;
-        } else {
-          parser->state = PROTO_STATE_DATA;
-        }
+    context->buffer[context->pos++] = byte;
+    if (context->pos == PROTO_PAYLOAD_POS) {
+      // Все байты заголовка получены, извлекаем LEN
+      context->expected_len = context->buffer[PROTO_LEN_POS];
+      if (context->expected_len > PROTO_MAX_PAYLOAD) {
+        context->state = PROTO_STATE_IDLE;
+        parse_res = PROTO_PARSER_ERROR;
+      } else if (context->expected_len == 0) {
+        // Нет данных, переходим к ожиданию CRC
+        context->state = PROTO_STATE_CRC;
+      } else {
+        context->state = PROTO_STATE_DATA;
       }
     }
-    return PROTO_PARSER_OK;
+    break;
 
   case PROTO_STATE_DATA:
-    // Накопление данных
-    if (parser->pos < PROTO_PAYLOAD_POS + parser->expected_len) {
-      parser->buffer[parser->pos++] = byte;
-      if (parser->pos == PROTO_PAYLOAD_POS + parser->expected_len) {
-        // Все данные получены, ожидаем CRC
-        parser->state = PROTO_STATE_CRC;
-      }
+    context->buffer[context->pos++] = byte;
+    if (context->pos == (PROTO_PAYLOAD_POS + context->expected_len)) {
+      context->state = PROTO_STATE_CRC;
     }
-    return PROTO_PARSER_OK;
+    break;
 
   case PROTO_STATE_CRC:
-    // Приём CRC
-    parser->buffer[parser->pos++] = byte;
-    // Теперь кадр полностью получен
-    parser->state = PROTO_STATE_COMPLETE;
+    context->buffer[context->pos++] = byte;
+    context->state = PROTO_STATE_IDLE;
+    parse_res = PROTO_PARSER_ERROR;
     // Проверяем CRC
     // CRC вычисляется от байтов с позиции PROTO_SYS_ID_POS (1) до позиции pos-2
     // (данные) В буфере: [0]=SYNC, [1]=FROM, [2]=TO, [3]=CMD, [4]=LEN,
     // [5..]=data, [pos-1]=CRC
-    uint8_t crc_calc = proto_crc8(parser->buffer + PROTO_SYS_ID_POS, parser->pos - 1 - PROTO_SYS_ID_POS);
-    uint8_t crc_received = parser->buffer[parser->pos - 1];
-    if (crc_calc != crc_received) {
-      parser->state = PROTO_STATE_ERROR;
-      return PROTO_PARSER_ERROR;
-    }
-    // Кадр корректен, заполняем out_msg если передан
-    if (out_msg) {
-      out_msg->sys_id = parser->buffer[PROTO_SYS_ID_POS];
-      out_msg->target_id = parser->buffer[PROTO_TARGET_ID_POS];
-      out_msg->cmd = parser->buffer[PROTO_CMD_POS];
-      out_msg->len = parser->buffer[PROTO_LEN_POS];
-      if (parser->expected_len > 0) {
-        memcpy(out_msg->data, parser->buffer + PROTO_PAYLOAD_POS, parser->expected_len);
+    const uint8_t crc = proto_crc8(context->buffer + PROTO_SYS_ID_POS, context->pos - 1 - PROTO_SYS_ID_POS);
+    const uint8_t crc_received = context->buffer[context->pos - 1];
+    if (crc == crc_received) {
+      parse_res = PROTO_PARSER_FRAME_READY;
+      // Кадр корректен, заполняем out_msg если передан
+      if (out_msg) {
+        out_msg->sys_id = context->buffer[PROTO_SYS_ID_POS];
+        out_msg->target_id = context->buffer[PROTO_TARGET_ID_POS];
+        out_msg->cmd = context->buffer[PROTO_CMD_POS];
+        out_msg->len = context->buffer[PROTO_LEN_POS];
+        if (context->expected_len > 0) {
+          memcpy(out_msg->data, context->buffer + PROTO_PAYLOAD_POS, context->expected_len);
+        }
       }
     }
-    parser->state = PROTO_STATE_IDLE; // автоматический сброс для следующего кадра
-    return PROTO_PARSER_FRAME_READY;
-
-  case PROTO_STATE_COMPLETE:
-    // Это состояние должно быть кратковременным, после него сбрасываем в IDLE
-    parser->state = PROTO_STATE_IDLE;
-    return PROTO_PARSER_OK;
-
-  case PROTO_STATE_ERROR:
-    // Остаёмся в состоянии ошибки до явного сброса
-    return PROTO_PARSER_ERROR;
+    break;
 
   default:
-    parser->state = PROTO_STATE_ERROR;
-    return PROTO_PARSER_ERROR;
+    context->state = PROTO_STATE_IDLE;
+    parse_res = PROTO_PARSER_ERROR;
   }
 
-  return paese_res;
+  return parse_res;
 }
