@@ -24,7 +24,7 @@ size_t proto_pack(const proto_msg_t *msg, uint8_t *out_buf) {
   out_buf[idx++] = msg->cmd;
   out_buf[idx++] = msg->len;
   memcpy(out_buf + PROTO_PAYLOAD_POS, msg->data, msg->len);
-  out_buf[PROTO_PAYLOAD_POS + msg->len] = proto_crc8(out_buf + 1, PROTO_MAX_HEADER - 1 + msg->len); // CRC по FROM..DATA
+  out_buf[PROTO_PAYLOAD_POS + msg->len] = proto_crc8(out_buf + 1, (PROTO_PAYLOAD_POS - 1) + msg->len); // CRC по FROM..DATA
 
   return PROTO_MAX_HEADER + msg->len + 1; // header + data + crc
 }
@@ -42,7 +42,7 @@ int8_t proto_unpack(const proto_t *context, proto_msg_t *out_msg) {
   const uint8_t *start_msg = context->buffer + 1; // исключаем sync
   const uint8_t msg_len = PROTO_MAX_HEADER + msg_payload_len - 1;
   const uint8_t crc = proto_crc8(start_msg, msg_len);
-  const uint8_t msg_crc_pos = PROTO_PAYLOAD_POS + msg_payload_len + 1;
+  const uint8_t msg_crc_pos = PROTO_PAYLOAD_POS + msg_payload_len;
   if (context->buffer[msg_crc_pos] != crc) {
     return -2;
   }

@@ -155,6 +155,10 @@ static char* test_sync_loss() {
     return 0;
 }
 
+// =============
+// proto timeout
+// =============
+
 static char* test_timeout_disabled_by_default() {
     proto_t parser;
     proto_parser_init(&parser);
@@ -259,6 +263,157 @@ static char* test_timeout_disabled_explicitly() {
     return 0;
 }
 
+// ============
+// proto_unpack
+// ============
+
+static char* test_proto_unpack_ok() {
+    // Создаём сообщение
+    proto_msg_t original = {
+        .sys_id = 0x12,
+        .target_id = 0x34,
+        .cmd = 0x56,
+        .len = 4,
+        .data = {0xAA, 0xBB, 0xCC, 0xDD}
+    };
+    
+    // Упаковываем
+    uint8_t buffer[PROTO_MAX_FRAME];
+    size_t packed_len = proto_pack(&original, buffer);
+    mu_assert("pack should succeed", packed_len > 0);
+    
+    // Создаём контекст, заполняем буфер вручную (как если бы приняли кадр)
+    proto_t ctx;
+    memcpy(ctx.buffer, buffer, packed_len);
+    // Заполняем остальные поля, которые использует proto_unpack (pos, expected_len не нужны)
+    // proto_unpack использует только buffer и предполагает, что кадр полный.
+    
+    proto_msg_t unpacked;
+    int8_t res = proto_unpack(&ctx, &unpacked);
+    mu_assert("unpack should return 1 (OK)", res == 1);
+    mu_assert("sys_id mismatch", unpacked.sys_id == original.sys_id);
+    mu_assert("target_id mismatch", unpacked.target_id == original.target_id);
+    mu_assert("cmd mismatch", unpacked.cmd == original.cmd);
+    mu_assert("len mismatch", unpacked.len == original.len);
+    mu_assert("data mismatch", memcmp(unpacked.data, original.data, original.len) == 0);
+    
+    return 0;
+}
+
+static char* test_proto_unpack_zero_payload() {
+    // Сообщение без данных
+    proto_msg_t original = {
+        .sys_id = 0x01,
+        .target_id = 0x02,
+        .cmd = 0x03,
+        .len = 0,
+        .data = {}
+    };
+    
+    uint8_t buffer[PROTO_MAX_FRAME];
+    size_t packed_len = proto_pack(&original, buffer);
+    mu_assert("pack should succeed", packed_len == PROTO_MAX_HEADER + 1); // header + CRC
+    
+    proto_t ctx;
+    memcpy(ctx.buffer, buffer, packed_len);
+    
+    proto_msg_t unpacked;
+    int8_t res = proto_unpack(&ctx, &unpacked);
+    mu_assert("unpack should return 1", res == 1);
+    mu_assert("len should be 0", unpacked.len == 0);
+    // Данные не копируются при len==0, но это нормально
+    
+    return 0;
+}
+
+static char* test_proto_unpack_max_payload() {
+    // Максимальная длина полезной нагрузки
+    proto_msg_t original;
+    original.sys_id = 0x01;
+    original.target_id = 0x02;
+    original.cmd = 0x03;
+    original.len = PROTO_MAX_PAYLOAD;
+    for (uint8_t i = 0; i < PROTO_MAX_PAYLOAD; i++) {
+        original.data[i] = i;
+    }
+    
+    uint8_t buffer[PROTO_MAX_FRAME];
+    size_t packed_len = proto_pack(&original, buffer);
+    mu_assert("pack should succeed", packed_len == PROTO_MAX_FRAME);
+    
+    proto_t ctx;
+    memcpy(ctx.buffer, buffer, packed_len);
+    
+    proto_msg_t unpacked;
+    int8_t res = proto_unpack(&ctx, &unpacked);
+    mu_assert("unpack should return 1", res == 1);
+    mu_assert("len mismatch", unpacked.len == PROTO_MAX_PAYLOAD);
+    mu_assert("data mismatch", memcmp(unpacked.data, original.data, PROTO_MAX_PAYLOAD) == 0);
+    
+    return 0;
+}
+
+static char* test_proto_unpack_invalid_len() {
+    // Кадр с длиной > PROTO_MAX_PAYLOAD
+    uint8_t bad_frame[] = {
+        PROTO_SYNC,
+        0x01, 0x02, 0x03, PROTO_MAX_PAYLOAD + 1, // длина слишком велика
+        0x00, // dummy data, но CRC уже не важен, так как проверка длины раньше
+        0x00
+    };
+    // Вычислим CRC, но он не должен проверяться, если длина невалидна
+    uint8_t crc = proto_crc8(bad_frame + 1, 4); // только заголовок без данных
+    bad_frame[PROTO_PAYLOAD_POS] = crc;
+    
+    proto_t ctx;
+    memcpy(ctx.buffer, bad_frame, sizeof(bad_frame));
+    
+    proto_msg_t unpacked;
+    int8_t res = proto_unpack(&ctx, &unpacked);
+    mu_assert("unpack should return -1 (invalid length)", res == -1);
+    
+    return 0;
+}
+
+static char* test_proto_unpack_crc_error() {
+    // Кадр с правильной длиной, но неверной CRC
+    proto_msg_t original = {
+        .sys_id = 0x01,
+        .target_id = 0x02,
+        .cmd = 0x03,
+        .len = 2,
+        .data = {0x11, 0x22}
+    };
+    uint8_t buffer[PROTO_MAX_FRAME];
+    size_t packed_len = proto_pack(&original, buffer);
+    
+    // Повреждаем CRC
+    buffer[packed_len - 1] ^= 0xFF;
+    
+    proto_t ctx;
+    memcpy(ctx.buffer, buffer, packed_len);
+    
+    proto_msg_t unpacked;
+    int8_t res = proto_unpack(&ctx, &unpacked);
+    mu_assert("unpack should return -2 (CRC error)", res == -2);
+    
+    return 0;
+}
+
+static char* test_proto_unpack_null_args() {
+    proto_t ctx;
+    proto_msg_t msg;
+    // Передаём NULL контекст
+    int8_t res = proto_unpack(NULL, &msg);
+    mu_assert("NULL context should return -1", res == -1);
+    
+    // Передаём NULL out_msg
+    res = proto_unpack(&ctx, NULL);
+    mu_assert("NULL out_msg should return -1", res == -1);
+    
+    return 0;
+}
+
 
 // ============================================================================
 // Test runner
@@ -270,11 +425,19 @@ static char* all_tests() {
     mu_run_test(test_crc_error);
     mu_run_test(test_overflow_data);
     mu_run_test(test_sync_loss);
+    // timeout 
     mu_run_test(test_timeout_disabled_by_default);
     mu_run_test(test_timeout_no_reset_if_fast);
     mu_run_test(test_timeout_reset_on_slow_bytes);
     mu_run_test(test_timeout_reset_on_long_pause_before_next_byte);
     mu_run_test(test_timeout_disabled_explicitly);
+    // proto_unpack
+    mu_run_test(test_proto_unpack_ok);
+    mu_run_test(test_proto_unpack_zero_payload);
+    mu_run_test(test_proto_unpack_max_payload);
+    mu_run_test(test_proto_unpack_invalid_len);
+    mu_run_test(test_proto_unpack_crc_error);
+    mu_run_test(test_proto_unpack_null_args);
     return 0;
 }
 
