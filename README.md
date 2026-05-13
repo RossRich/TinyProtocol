@@ -1,4 +1,4 @@
-# Small Protocol Library
+# Tiny Protocol Lib
 
 Библиотека для работы с простым UART-протоколом в embedded-системах. Реализует упаковку/распаковку кадров, вычисление CRC-8 и извлечение сообщений из потока.
 
@@ -29,12 +29,12 @@
 
 ## Использование
 
-Подробная документация по функциям находится в заголовочном файле [`small_protocol.h`](small_protocol.h). Используйте Doxygen для генерации документации.
+Подробная документация по функциям находится в заголовочном файле [`tiny_protocol.h`](tiny_protocol.h). Используйте Doxygen для генерации документации.
 
 ### Быстрый старт
 
 ```c
-#include "small_protocol.h"
+#include "tiny_protocol.h"
 
 // Создание сообщения
 proto_msg_t msg = PROTO_MSG_INIT(0x01, 0x02, 0x10, data, data_len);
@@ -58,8 +58,8 @@ proto_parser_result_t res = proto_parser_feed(&parser, byte, &out_msg);
 ## Сборка
 
 Библиотека состоит из двух файлов:
-- `small_protocol.h` – заголовочный файл
-- `small_protocol.c` – реализация
+- `tiny_protocol.h` – заголовочный файл
+- `tiny_protocol.c` – реализация
 
 Добавьте оба файла в проект и скомпилируйте с поддержкой C99 или новее.
 
@@ -68,8 +68,8 @@ proto_parser_result_t res = proto_parser_feed(&parser, byte, &out_msg);
 Для запуска модульных тестов выполните:
 
 ```bash
-gcc -Wall -Wextra -std=c99 -I. small_protocol.c test_small_protocol.c -o test_small_protocol
-./test_small_protocol
+gcc -Wall -Wextra -std=c99 -I. tiny_protocol.c test_tiny_protocol.c -o test_tiny_protocol
+./test_tiny_protocol
 ```
 
 Тесты используют фреймворк MinUnit и проверяют:

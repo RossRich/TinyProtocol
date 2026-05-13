@@ -1,5 +1,5 @@
-#ifndef _SMALL_PROTOCOL_H_
-#define _SMALL_PROTOCOL_H_
+#ifndef _TINY_PROTOCOL_H_
+#define _TINY_PROTOCOL_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -142,4 +142,4 @@ int8_t proto_unpack(const proto_t *context, proto_msg_t *out_msg);
 }
 #endif
 
-#endif
+#endif // _TINY_PROTOCOL_H_

@@ -1,4 +1,4 @@
-PROJECT=small_protocol
+PROJECT=tiny_protocol
 
 CC     ?= gcc
 CSTD   :=-std=c11
@@ -7,7 +7,7 @@ TEST   := build/test_$(PROJECT)
 
 SRCS := $(wildcard  src/*.c)
 OBJS := $(patsubst src/%.c, build/obj/%.o, $(SRCS))
-TESTSRC := tests/test_small_protocol.c
+TESTSRC := tests/test_tiny_protocol.c
 
 .PHONY: all test clean
 

@@ -1,4 +1,4 @@
-#include "small_protocol.h"
+#include "tiny_protocol.h"
 #include <string.h>
 
 uint8_t proto_crc8(const uint8_t *buf, size_t len) {

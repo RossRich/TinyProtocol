@@ -1,4 +1,4 @@
-#include "small_protocol.h"
+#include "tiny_protocol.h"
 #include <stdio.h>
 #include <string.h>
 #include <time.h> 
