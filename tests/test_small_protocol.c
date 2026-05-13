@@ -1,6 +1,7 @@
 #include "small_protocol.h"
 #include <stdio.h>
 #include <string.h>
+#include <time.h> 
 
 // ============================================================================
 // MinUnit macros
@@ -19,6 +20,12 @@ static int compare_msg(const proto_msg_t* a, const proto_msg_t* b) {
             a->cmd == b->cmd &&
             a->len == b->len &&
             memcmp(a->data, b->data, a->len) == 0);
+}
+
+static uint32_t millis() {
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    return ((uint32_t)ts.tv_sec * 1000U) + ((uint32_t)(ts.tv_nsec / 1000000U));
 }
 
 // ============================================================================
@@ -70,8 +77,7 @@ static char* test_correct_frame() {
         if (i == packed_len - 1) {
             mu_assert("last byte should yield FRAME_READY", res == PROTO_PARSER_FRAME_READY);
         } else {
-            mu_assert("intermediate bytes should yield OK or NEED_MORE",
-                      res == PROTO_PARSER_OK || res == PROTO_PARSER_NEED_MORE);
+            mu_assert("intermediate bytes should yield OK or NEED_MORE", res == PROTO_PARSER_OK);
         }
     }
     
@@ -119,6 +125,7 @@ static char* test_overflow_data() {
         res = proto_parser_feed(&parser, bad_frame[i], NULL);
         if (i == 4) { // after receiving length
             mu_assert("excessive length should cause ERROR", res == PROTO_PARSER_ERROR);
+            mu_assert("parser should be in ERROR state", parser.state == PROTO_STATE_IDLE);
             break;
         }
     }
@@ -148,6 +155,111 @@ static char* test_sync_loss() {
     return 0;
 }
 
+static char* test_timeout_disabled_by_default() {
+    proto_t parser;
+    proto_parser_init(&parser);
+    // timeout_ms должен быть 0 по умолчанию
+    mu_assert("timeout_ms should be 0 by default", parser.timeout_ms == 0);
+    
+    // Передаем SYNC, затем долгую паузу (имитируем вызовом feed_timed с большим now_ms)
+    uint32_t t0 = millis();
+    proto_parser_feed_timed(&parser, PROTO_SYNC, NULL, t0);
+    mu_assert("state should be HEADER after SYNC", parser.state == PROTO_STATE_HEADER);
+    
+    // Имитируем паузу 1 секунду
+    uint32_t t1 = t0 + 1000;
+    // Отправляем следующий байт (заголовок)
+    proto_parser_feed_timed(&parser, 0x01, NULL, t1);
+    // Так как таймаут отключен, парсер не должен сброситься
+    mu_assert("state should not be IDLE after timeout disabled", parser.state != PROTO_STATE_IDLE);
+    return 0;
+}
+
+static char* test_timeout_no_reset_if_fast() {
+    proto_t parser;
+    proto_parser_init(&parser);
+    proto_parser_set_timeout(&parser, 100); // 100 мс таймаут
+    
+    uint32_t t0 = millis();
+    proto_parser_feed_timed(&parser, PROTO_SYNC, NULL, t0);
+    mu_assert("state HEADER", parser.state == PROTO_STATE_HEADER);
+    
+    // Быстрая отправка следующих байтов (менее чем через 100 мс)
+    uint32_t t1 = t0 + 50;
+    proto_parser_feed_timed(&parser, 0x01, NULL, t1);
+    mu_assert("state should still be HEADER (not reset)", parser.state == PROTO_STATE_HEADER);
+    
+    // Еще один быстрый байт
+    uint32_t t2 = t1 + 30;
+    proto_parser_feed_timed(&parser, 0x02, NULL, t2);
+    mu_assert("state should still be HEADER", parser.state == PROTO_STATE_HEADER);
+    return 0;
+}
+
+static char* test_timeout_reset_on_slow_bytes() {
+    proto_t parser;
+    proto_parser_init(&parser);
+
+    const uint32_t timeout = 100;
+
+    proto_parser_set_timeout(&parser, timeout);
+    
+    uint32_t t0 = millis();
+    proto_parser_feed_timed(&parser, PROTO_SYNC, NULL, t0);
+    mu_assert("state should still be HEADER", parser.state == PROTO_STATE_HEADER);
+    
+    // Долгая пауза > 100 мс
+    uint32_t t1 = t0 + timeout + timeout;
+    // Следующий байт (заголовок)
+    proto_parser_result_t res = proto_parser_feed_timed(&parser, 0x01, NULL, t1);
+    // Парсер должен сброситься из-за таймаута, и этот байт 0x01 не является SYNC,
+    // поэтому он будет проигнорирован в состоянии IDLE.
+    mu_assert("parser should be IDLE after timeout reset", parser.state == PROTO_STATE_IDLE);
+    // Результат должен быть PROTO_PARSER_OK (байт проигнорирован), а не ERROR
+    mu_assert("result should be OK", res == PROTO_PARSER_OK);
+    return 0;
+}
+
+static char* test_timeout_reset_on_long_pause_before_next_byte() {
+    proto_t parser;
+    proto_parser_init(&parser);
+    proto_parser_set_timeout(&parser, 50);
+    
+    uint32_t t0 = millis();
+    proto_parser_feed_timed(&parser, PROTO_SYNC, NULL, t0);
+    mu_assert("state HEADER", parser.state == PROTO_STATE_HEADER);
+    mu_assert("last_byte_time_ms set", parser.last_byte_time_ms == t0);
+    
+    // Имитируем паузу больше таймаута, затем передаем следующий байт
+    uint32_t t1 = t0 + 100;
+    proto_parser_feed_timed(&parser, 0x01, NULL, t1);
+    // Должен быть сброс, парсер в IDLE
+    mu_assert("state should be IDLE after timeout", parser.state == PROTO_STATE_IDLE);
+    // last_byte_time_ms должно обновиться на t1 (после вызова feed_timed)
+    mu_assert("last_byte_time_ms updated", parser.last_byte_time_ms == t1);
+    return 0;
+}
+
+static char* test_timeout_disabled_explicitly() {
+    proto_t parser;
+    proto_parser_init(&parser);
+    proto_parser_set_timeout(&parser, 100);
+    // Отключаем таймаут
+    proto_parser_set_timeout(&parser, 0);
+    
+    uint32_t t0 = millis();
+    proto_parser_feed_timed(&parser, PROTO_SYNC, NULL, t0);
+    mu_assert("state HEADER", parser.state == PROTO_STATE_HEADER);
+    
+    // Долгая пауза
+    uint32_t t1 = t0 + 500;
+    proto_parser_feed_timed(&parser, 0x01, NULL, t1);
+    // Таймаут отключен, сброса не будет
+    mu_assert("state should still be HEADER", parser.state == PROTO_STATE_HEADER);
+    return 0;
+}
+
+
 // ============================================================================
 // Test runner
 // ============================================================================
@@ -158,6 +270,11 @@ static char* all_tests() {
     mu_run_test(test_crc_error);
     mu_run_test(test_overflow_data);
     mu_run_test(test_sync_loss);
+    mu_run_test(test_timeout_disabled_by_default);
+    mu_run_test(test_timeout_no_reset_if_fast);
+    mu_run_test(test_timeout_reset_on_slow_bytes);
+    mu_run_test(test_timeout_reset_on_long_pause_before_next_byte);
+    mu_run_test(test_timeout_disabled_explicitly);
     return 0;
 }
 

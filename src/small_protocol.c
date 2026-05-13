@@ -56,18 +56,6 @@ int8_t proto_unpack(const proto_t *context, proto_msg_t *out_msg) {
   return 1;
 }
 
-void proto_parser_init(proto_t *context) {
-  if (!context) {
-    return;
-  }
-
-  context->state = PROTO_STATE_IDLE;
-  context->pos = 0;
-  context->expected_len = 0;
-  context->timeout_counter = 0;
-  context->buffer[0] = 0;
-}
-
 void proto_parser_reset(proto_t *context) {
   if (!context) {
     return;
@@ -76,7 +64,41 @@ void proto_parser_reset(proto_t *context) {
   context->state = PROTO_STATE_IDLE;
   context->pos = 0;
   context->expected_len = 0;
-  context->timeout_counter = 0;
+  context->last_byte_time_ms = 0;
+  context->buffer[0] = 0;
+}
+
+void proto_parser_init(proto_t *context) {
+  if (!context) {
+    return;
+  }
+
+  context->timeout_ms = 0;
+  proto_parser_reset(context);
+}
+
+void proto_parser_set_timeout(proto_t *ctx, uint32_t timeout_ms) {
+  if (ctx) {
+    ctx->timeout_ms = timeout_ms;
+  }
+}
+
+uint8_t proto_parser_tick(proto_t *context, uint32_t now_ms) {
+  if (!context || context->timeout_ms == 0) {
+    return 0;
+  }
+
+  if (context->state != PROTO_STATE_IDLE) {
+    // Проверка таймаута
+    if (now_ms - context->last_byte_time_ms > context->timeout_ms) {
+      proto_parser_reset(context);
+      return 1; // таймаут сработал
+    }
+    // Обновляем время последнего байта (оно же время последнего вызова tick в не-IDLE)
+    context->last_byte_time_ms = now_ms;
+  }
+
+  return 0;
 }
 
 proto_parser_result_t proto_parser_feed(proto_t *context, uint8_t byte, proto_msg_t *out_msg) {
@@ -89,6 +111,7 @@ proto_parser_result_t proto_parser_feed(proto_t *context, uint8_t byte, proto_ms
   switch (context->state) {
   case PROTO_STATE_IDLE:
     if (byte == PROTO_SYNC) {
+      proto_parser_reset(context);
       context->buffer[0] = byte;
       context->pos = 1;
       context->state = PROTO_STATE_HEADER;
@@ -150,4 +173,31 @@ proto_parser_result_t proto_parser_feed(proto_t *context, uint8_t byte, proto_ms
   }
 
   return parse_res;
+}
+
+proto_parser_result_t proto_parser_feed_timed(proto_t *context, uint8_t byte, proto_msg_t *out_msg, uint32_t now_ms) {
+  if (!context) {
+    return PROTO_PARSER_ERROR;
+  }
+
+  proto_parser_result_t parser_res = PROTO_PARSER_ERROR;
+
+  if (context->timeout_ms > 0) {
+    // Если таймаут включен
+    const uint32_t dt = now_ms - context->last_byte_time_ms;
+
+    if (dt > context->timeout_ms && context->state != PROTO_STATE_IDLE) {
+      proto_parser_reset(context);
+    }
+
+    // Cначала вызов парсера, так как после найденного SYNC будет сброс и времени в том числе.
+    parser_res = proto_parser_feed(context, byte, out_msg);
+
+    // Гарантированно сохраняем время даже если был сброс в IDLE
+    context->last_byte_time_ms = now_ms;
+  } else {
+    parser_res = proto_parser_feed(context, byte, out_msg);
+  }
+
+  return parser_res;
 }

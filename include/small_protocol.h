@@ -31,10 +31,10 @@ typedef struct {
 
 // Парсер потока (конечный автомат)
 typedef enum {
-  PROTO_STATE_IDLE,       // Ожидание SYNC
-  PROTO_STATE_HEADER,     // Чтение заголовка (FROM, TO, CMD, LEN)
-  PROTO_STATE_DATA,       // Чтение данных
-  PROTO_STATE_CRC,        // Чтение CRC
+  PROTO_STATE_IDLE,   // Ожидание SYNC
+  PROTO_STATE_HEADER, // Чтение заголовка (FROM, TO, CMD, LEN)
+  PROTO_STATE_DATA,   // Чтение данных
+  PROTO_STATE_CRC,    // Чтение CRC
 } proto_parser_state_t;
 
 // Результат обработки байта
@@ -42,7 +42,6 @@ typedef enum {
   PROTO_PARSER_OK,          // Байт обработан, продолжать
   PROTO_PARSER_FRAME_READY, // Кадр полностью принят и распарсен
   PROTO_PARSER_ERROR,       // Ошибка (CRC, формат, переполнение)
-  PROTO_PARSER_NEED_MORE    // Нужно больше данных (промежуточное состояние)
 } proto_parser_result_t;
 
 // Контекст парсера
@@ -51,7 +50,8 @@ typedef struct {
   uint8_t buffer[PROTO_MAX_FRAME]; // Буфер для накопления кадра (включая SYNC)
   uint8_t pos;                     // Текущая позиция в буфере
   uint8_t expected_len;            // Ожидаемая длина данных (из поля LEN)
-  uint32_t timeout_counter;        // Счетчик таймаута (опционально)
+  uint32_t last_byte_time_ms;      // Таймер ожидания входящих байт до сброса
+  uint32_t timeout_ms;             // Максимальное ожидание очередного байта если SYNC был найден
 } proto_t;
 
 #ifdef __cplusplus
@@ -73,6 +73,14 @@ void proto_parser_init(proto_t *context);
 void proto_parser_reset(proto_t *context);
 
 /**
+ * @brief Задать максимальное время ожидания очередного байта перед сбросом в исходное состояние
+ * @param ctx Указатель на структуру парсера
+ * @param timeout_ms Максимальное время ожидания
+ * @note Необходимо вызывать функцию proto_parser_feed_timed(...)
+ */
+void proto_parser_set_timeout(proto_t *ctx, uint32_t timeout_ms);
+
+/**
  * @brief Обрабатывает один байт из входного потока.
  * @param context Указатель на структуру парсера.
  * @param byte Принятый байт.
@@ -85,6 +93,23 @@ void proto_parser_reset(proto_t *context);
  * @note Если out_msg != NULL и возвращено PROTO_PARSER_FRAME_READY, структура out_msg содержит распарсенное сообщение.
  */
 proto_parser_result_t proto_parser_feed(proto_t *context, uint8_t byte, proto_msg_t *out_msg);
+
+/**
+ * @brief Обрабатывает один байт из входного потока учитывая задержку между поступлением байт
+ * @param context Указатель на структуру парсера
+ * @param byte Принятый байт
+ * @param out_msg Указатель на структуру сообщения для заполнения (может быть NULL)
+ * @param now_ms Текущее время системы, миллисекунд
+ * @return Результат обработки:
+ *   - PROTO_PARSER_OK: байт обработан, кадр ещё не готов.
+ *   - PROTO_PARSER_FRAME_READY: кадр полностью принят и распарсен, out_msg заполнен.
+ *   - PROTO_PARSER_ERROR: ошибка (CRC, формат, переполнение).
+ *   - PROTO_PARSER_NEED_MORE: ожидание дополнительных данных (промежуточное состояние).
+ * @note Если не задать максимальное время меджу чтением байт, то парсер будет игнорировать обработку времени, что идентично
+ * вызову обычной функции proto_parser_feed(...). Если out_msg != NULL и возвращено PROTO_PARSER_FRAME_READY, структура out_msg
+ * содержит распарсенное сообщение.
+ */
+proto_parser_result_t proto_parser_feed_timed(proto_t *context, uint8_t byte, proto_msg_t *out_msg, uint32_t now_ms);
 
 /**
  * @brief Вычисляет CRC-8 (Dallas/Maxim, полином 0x31).
