@@ -39,8 +39,8 @@ int8_t proto_unpack(const proto_t *context, proto_msg_t *out_msg) {
     return -1;
   }
 
-  const uint8_t *start_msg = context->buffer + 1; // исключаем sync
-  const uint8_t msg_len = PROTO_MAX_HEADER + msg_payload_len - 1;
+  const uint8_t *start_msg = context->buffer + 1;                 // исключаем sync
+  const uint8_t msg_len = PROTO_MAX_HEADER + msg_payload_len - 1; // длина заголовка + длина данных - crc
   const uint8_t crc = proto_crc8(start_msg, msg_len);
   const uint8_t msg_crc_pos = PROTO_PAYLOAD_POS + msg_payload_len;
   if (context->buffer[msg_crc_pos] != crc) {
@@ -146,25 +146,11 @@ proto_parser_result_t proto_parser_feed(proto_t *context, uint8_t byte, proto_ms
     context->buffer[context->pos++] = byte;
     context->state = PROTO_STATE_IDLE;
     parse_res = PROTO_PARSER_ERROR;
-    // Проверяем CRC
-    // CRC вычисляется от байтов с позиции PROTO_SYS_ID_POS (1) до позиции pos-2
-    // (данные) В буфере: [0]=SYNC, [1]=FROM, [2]=TO, [3]=CMD, [4]=LEN,
-    // [5..]=data, [pos-1]=CRC
-    const uint8_t crc = proto_crc8(context->buffer + PROTO_SYS_ID_POS, context->pos - 1 - PROTO_SYS_ID_POS);
-    const uint8_t crc_received = context->buffer[context->pos - 1];
-    if (crc == crc_received) {
+
+    if (proto_unpack(context, out_msg) == 1) {
       parse_res = PROTO_PARSER_FRAME_READY;
-      // Кадр корректен, заполняем out_msg если передан
-      if (out_msg) {
-        out_msg->sys_id = context->buffer[PROTO_SYS_ID_POS];
-        out_msg->target_id = context->buffer[PROTO_TARGET_ID_POS];
-        out_msg->cmd = context->buffer[PROTO_CMD_POS];
-        out_msg->len = context->buffer[PROTO_LEN_POS];
-        if (context->expected_len > 0) {
-          memcpy(out_msg->data, context->buffer + PROTO_PAYLOAD_POS, context->expected_len);
-        }
-      }
     }
+
     break;
 
   default:
