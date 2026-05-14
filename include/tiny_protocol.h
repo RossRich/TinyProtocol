@@ -1,3 +1,8 @@
+/*
+  MIT License
+  Copyright (c) 2026 Богдан Лещенко
+ */
+
 #ifndef _TINY_PROTOCOL_H_
 #define _TINY_PROTOCOL_H_
 
@@ -22,11 +27,11 @@
 typedef uint8_t proto_cmd_t;
 
 typedef struct {
-  uint8_t sys_id;
-  uint8_t target_id;
-  proto_cmd_t cmd;
-  uint8_t len;
-  uint8_t data[PROTO_MAX_PAYLOAD];
+  uint8_t sys_id;                  // Кто отправляет
+  uint8_t target_id;               // Кому отправляем
+  proto_cmd_t cmd;                 // Команда
+  uint8_t len;                     // Длина поля data
+  uint8_t data[PROTO_MAX_PAYLOAD]; // Параметры cmd
 } proto_msg_t;
 
 // Парсер потока (конечный автомат)

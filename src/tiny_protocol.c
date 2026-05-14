@@ -1,3 +1,8 @@
+/*
+  MIT License
+  Copyright (c) 2026 Богдан Лещенко
+ */
+
 #include "tiny_protocol.h"
 #include <string.h>
 
