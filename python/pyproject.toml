@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tiny_protocol"
+version = "1.0.0"
+authors = [{name = "Богдан Лещенко", email = "rossrich@bk.ru"}]
+requires-python = ">=3.8"
+dependencies = []
+
+[project.optional-dependencies]
+dev = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tiny_protocol"]
