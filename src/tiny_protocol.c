@@ -34,14 +34,14 @@ size_t proto_pack(const proto_msg_t *msg, uint8_t *out_buf) {
   return PROTO_MAX_HEADER + msg->len + 1; // header + data + crc
 }
 
-int8_t proto_unpack(const proto_t *context, proto_msg_t *out_msg) {
+proto_parser_result_t proto_unpack(const proto_t *context, proto_msg_t *out_msg) {
   if (!context || !out_msg) {
-    return -1;
+    return PROTO_PARSER_ERROR;
   }
 
   const uint8_t msg_payload_len = context->buffer[PROTO_LEN_POS];
   if (msg_payload_len > PROTO_MAX_PAYLOAD) {
-    return -1;
+    return PROTO_PARSER_ERROR;
   }
 
   const uint8_t *start_msg = context->buffer + 1;                 // исключаем sync
@@ -49,7 +49,7 @@ int8_t proto_unpack(const proto_t *context, proto_msg_t *out_msg) {
   const uint8_t crc = proto_crc8(start_msg, msg_len);
   const uint8_t msg_crc_pos = PROTO_PAYLOAD_POS + msg_payload_len;
   if (context->buffer[msg_crc_pos] != crc) {
-    return -2;
+    return PROTO_PARSER_ERROR;
   }
 
   out_msg->sys_id = context->buffer[PROTO_SYS_ID_POS];
@@ -58,7 +58,7 @@ int8_t proto_unpack(const proto_t *context, proto_msg_t *out_msg) {
   out_msg->len = context->buffer[PROTO_LEN_POS];
   memcpy(out_msg->data, context->buffer + PROTO_PAYLOAD_POS, msg_payload_len);
 
-  return 1;
+  return PROTO_PARSER_FRAME_READY;
 }
 
 void proto_parser_reset(proto_t *context) {
@@ -136,12 +136,7 @@ proto_parser_result_t proto_parser_feed(proto_t *context, uint8_t byte, proto_ms
   case PROTO_STATE_CRC:
     context->buffer[context->pos++] = byte;
     context->state = PROTO_STATE_IDLE;
-    parse_res = PROTO_PARSER_ERROR;
-
-    if (proto_unpack(context, out_msg) == 1) {
-      parse_res = PROTO_PARSER_FRAME_READY;
-    }
-
+    parse_res = proto_unpack(context, out_msg);
     break;
 
   default:

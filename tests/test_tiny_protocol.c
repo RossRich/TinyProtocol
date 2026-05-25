@@ -289,8 +289,8 @@ static char* test_proto_unpack_ok() {
     // proto_unpack использует только buffer и предполагает, что кадр полный.
     
     proto_msg_t unpacked;
-    int8_t res = proto_unpack(&ctx, &unpacked);
-    mu_assert("unpack should return 1 (OK)", res == 1);
+    proto_parser_result_t res = proto_unpack(&ctx, &unpacked);
+    mu_assert("unpack should return PROTO_PARSER_FRAME_READY", res == PROTO_PARSER_FRAME_READY);
     mu_assert("sys_id mismatch", unpacked.sys_id == original.sys_id);
     mu_assert("target_id mismatch", unpacked.target_id == original.target_id);
     mu_assert("cmd mismatch", unpacked.cmd == original.cmd);
@@ -312,14 +312,14 @@ static char* test_proto_unpack_zero_payload() {
     
     uint8_t buffer[PROTO_MAX_FRAME];
     size_t packed_len = proto_pack(&original, buffer);
-    mu_assert("pack should succeed", packed_len == PROTO_MAX_HEADER + 1); // header + CRC
+    mu_assert("pack should succeed", packed_len == PROTO_MAX_HEADER + PROTO_CRC_SIZE); // header + CRC
     
     proto_t ctx;
     memcpy(ctx.buffer, buffer, packed_len);
     
     proto_msg_t unpacked;
-    int8_t res = proto_unpack(&ctx, &unpacked);
-    mu_assert("unpack should return 1", res == 1);
+    proto_parser_result_t res = proto_unpack(&ctx, &unpacked);
+    mu_assert("unpack should return PROTO_PARSER_FRAME_READY", res == PROTO_PARSER_FRAME_READY);
     mu_assert("len should be 0", unpacked.len == 0);
     // Данные не копируются при len==0, но это нормально
     
@@ -345,8 +345,8 @@ static char* test_proto_unpack_max_payload() {
     memcpy(ctx.buffer, buffer, packed_len);
     
     proto_msg_t unpacked;
-    int8_t res = proto_unpack(&ctx, &unpacked);
-    mu_assert("unpack should return 1", res == 1);
+    proto_parser_result_t res = proto_unpack(&ctx, &unpacked);
+    mu_assert("unpack should return PROTO_PARSER_FRAME_READY", res == PROTO_PARSER_FRAME_READY);
     mu_assert("len mismatch", unpacked.len == PROTO_MAX_PAYLOAD);
     mu_assert("data mismatch", memcmp(unpacked.data, original.data, PROTO_MAX_PAYLOAD) == 0);
     
@@ -369,8 +369,8 @@ static char* test_proto_unpack_invalid_len() {
     memcpy(ctx.buffer, bad_frame, sizeof(bad_frame));
     
     proto_msg_t unpacked;
-    int8_t res = proto_unpack(&ctx, &unpacked);
-    mu_assert("unpack should return -1 (invalid length)", res == -1);
+    proto_parser_result_t res = proto_unpack(&ctx, &unpacked);
+    mu_assert("unpack should return PROTO_PARSER_ERROR (invalid length)", res == PROTO_PARSER_ERROR);
     
     return 0;
 }
@@ -394,8 +394,8 @@ static char* test_proto_unpack_crc_error() {
     memcpy(ctx.buffer, buffer, packed_len);
     
     proto_msg_t unpacked;
-    int8_t res = proto_unpack(&ctx, &unpacked);
-    mu_assert("unpack should return -2 (CRC error)", res == -2);
+    proto_parser_result_t res = proto_unpack(&ctx, &unpacked);
+    mu_assert("unpack should return PROTO_PARSER_ERROR (CRC error)", res == PROTO_PARSER_ERROR);
     
     return 0;
 }
@@ -404,12 +404,12 @@ static char* test_proto_unpack_null_args() {
     proto_t ctx;
     proto_msg_t msg;
     // Передаём NULL контекст
-    int8_t res = proto_unpack(NULL, &msg);
-    mu_assert("NULL context should return -1", res == -1);
+    proto_parser_result_t res = proto_unpack(NULL, &msg);
+    mu_assert("NULL context should return PROTO_PARSER_ERROR", res == PROTO_PARSER_ERROR);
     
     // Передаём NULL out_msg
     res = proto_unpack(&ctx, NULL);
-    mu_assert("NULL out_msg should return -1", res == -1);
+    mu_assert("NULL out_msg should return PROTO_PARSER_ERROR", res == PROTO_PARSER_ERROR);
     
     return 0;
 }

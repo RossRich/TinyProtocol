@@ -125,23 +125,23 @@ proto_parser_result_t proto_parser_feed_timed(proto_t *context, uint8_t byte, pr
 uint8_t proto_crc8(const uint8_t *buf, size_t len);
 
 /**
- * @brief Упаковывает логическое сообщение в байтовый кадр для передачи по UART.
+ * @brief Упаковывает сообщение в байтовый кадр для передачи по UART.
  * @param msg Указатель на структуру сообщения.
  * @param out_buf Буфер для записи кадра (должен иметь размер не менее PROTO_MAX_FRAME).
- * @return Кол-во байт записанных в буфер
+ * @return Кол-во байт записанных в out_buf
  */
 size_t proto_pack(const proto_msg_t *msg, uint8_t *out_buf);
 
 /**
- * @brief Распаковывает байтовый кадр в логическое сообщение.
+ * @brief Распаковывает байтовый кадр в сообщение.
  * @param context Указатель на структуру кадра (заголовок, данные, CRC).
  * @param out_msg Указатель на структуру сообщения для заполнения.
- * @return Результат распаковки:
- *    1: OK (кадр корректен).
- *    -1: ошибка формата или длины.
- *    -2: ошибка CRC.
+ * @return Результат распаковки кадра.
+ * @retval `PROTO_PARSER_OK` - байт обработан, кадр ещё не готов.
+ * @retval `PROTO_PARSER_FRAME_READY` - кадр полностью принят и распарсен, out_msg заполнен.
+ * @retval `PROTO_PARSER_ERROR` - ошибка (CRC, формат, переполнение).
  */
-int8_t proto_unpack(const proto_t *context, proto_msg_t *out_msg);
+proto_parser_result_t proto_unpack(const proto_t *context, proto_msg_t *out_msg);
 
 #ifdef __cplusplus
 }
