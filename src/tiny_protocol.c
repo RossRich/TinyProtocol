@@ -88,24 +88,6 @@ void proto_parser_set_timeout(proto_t *ctx, uint32_t timeout_ms) {
   }
 }
 
-uint8_t proto_parser_tick(proto_t *context, uint32_t now_ms) {
-  if (!context || context->timeout_ms == 0) {
-    return 0;
-  }
-
-  if (context->state != PROTO_STATE_IDLE) {
-    // Проверка таймаута
-    if (now_ms - context->last_byte_time_ms > context->timeout_ms) {
-      proto_parser_reset(context);
-      return 1; // таймаут сработал
-    }
-    // Обновляем время последнего байта (оно же время последнего вызова tick в не-IDLE)
-    context->last_byte_time_ms = now_ms;
-  }
-
-  return 0;
-}
-
 proto_parser_result_t proto_parser_feed(proto_t *context, uint8_t byte, proto_msg_t *out_msg) {
   if (!context) {
     return PROTO_PARSER_ERROR;
