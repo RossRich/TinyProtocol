@@ -84,6 +84,10 @@ void proto_parser_init(proto_t *context) {
 
 void proto_parser_set_timeout(proto_t *ctx, uint32_t timeout_ms) {
   if (ctx) {
+    if (ctx->state != PROTO_STATE_IDLE) {
+      proto_parser_reset(ctx);
+    }
+
     ctx->timeout_ms = timeout_ms;
   }
 }
