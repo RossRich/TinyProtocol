@@ -1,0 +1,15 @@
+{
+  "BasedOnStyle": "LLVM",
+  "UseTab": "Never",
+  "IndentWidth": 2,
+  "SpaceBeforeInheritanceColon": "false",
+  "SpaceBeforeCtorInitializerColon": "false",
+  "AccessModifierOffset": -1,
+  "IndentAccessModifiers": "true",
+  "AlwaysBreakTemplateDeclarations": "true",
+  "BreakConstructorInitializers": "AfterColon",
+  "BreakInheritanceList": "AfterComma",
+  "PackConstructorInitializers": "NextLine",
+  "ColumnLimit": 130,
+  "AlignConsecutiveMacros": Consecutive
+}
