@@ -9,29 +9,30 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define PROTO_SYNC 0xAA
-#define PROTO_MAX_FRAME 32U
-#define PROTO_MAX_HEADER 5U   // SYNC | SYS_ID | TARGET_ID | CMD | LEN
-#define PROTO_MAX_PAYLOAD 26U // PROTO_MAX_FRAME - 1(sync) - 4(meta) - 1(CRC)
+#define PROTO_SYNC        0xAA
+#define PROTO_MAX_FRAME   32U
+#define PROTO_MAX_HEADER  5U // SYNC | SYS_ID | TARGET_ID | CMD | LEN
+#define PROTO_CRC_SIZE    1U
+#define PROTO_MAX_PAYLOAD (PROTO_MAX_FRAME - PROTO_MAX_HEADER - PROTO_CRC_SIZE)
 
 // [SYNC][SYS_ID][TARGET_ID][CMD][LEN][DATA...][CRC]
-#define PROTO_SYNC_POS 0U
-#define PROTO_SYS_ID_POS 1U
+#define PROTO_SYNC_POS      0U
+#define PROTO_SYS_ID_POS    1U
 #define PROTO_TARGET_ID_POS 2U
-#define PROTO_CMD_POS 3U
-#define PROTO_LEN_POS 4U
-#define PROTO_PAYLOAD_POS 5U
+#define PROTO_CMD_POS       3U
+#define PROTO_LEN_POS       4U
+#define PROTO_PAYLOAD_POS   5U
 
 #define ADDR_BROADCAST 0xFF
 
 typedef uint8_t proto_cmd_t;
 
 typedef struct {
-  uint8_t sys_id;                  // Кто отправляет
-  uint8_t target_id;               // Кому отправляем
-  proto_cmd_t cmd;                 // Команда
-  uint8_t len;                     // Длина поля data
-  uint8_t data[PROTO_MAX_PAYLOAD]; // Параметры cmd
+    uint8_t sys_id;                  // Кто отправляет
+    uint8_t target_id;               // Кому отправляем
+    proto_cmd_t cmd;                 // Команда
+    uint8_t len;                     // Длина поля data
+    uint8_t data[PROTO_MAX_PAYLOAD]; // Параметры cmd
 } proto_msg_t;
 
 // Парсер потока (конечный автомат)
@@ -51,12 +52,12 @@ typedef enum {
 
 // Контекст парсера
 typedef struct {
-  proto_parser_state_t state;      // Текущее состояние
-  uint8_t buffer[PROTO_MAX_FRAME]; // Буфер для накопления кадра (включая SYNC)
-  uint8_t pos;                     // Текущая позиция в буфере
-  uint8_t expected_len;            // Ожидаемая длина данных (из поля LEN)
-  uint32_t last_byte_time_ms;      // Таймер ожидания входящих байт до сброса
-  uint32_t timeout_ms;             // Максимальное ожидание очередного байта если SYNC был найден
+    proto_parser_state_t state;      // Текущее состояние
+    uint8_t buffer[PROTO_MAX_FRAME]; // Буфер для накопления кадра (включая SYNC)
+    uint8_t pos;                     // Текущая позиция в буфере
+    uint8_t expected_len;            // Ожидаемая длина данных (из поля LEN)
+    uint32_t last_byte_time_ms;      // Таймер ожидания входящих байт до сброса
+    uint32_t timeout_ms;             // Максимальное ожидание очередного байта если SYNC был найден
 } proto_t;
 
 #ifdef __cplusplus
@@ -90,11 +91,10 @@ void proto_parser_set_timeout(proto_t *ctx, uint32_t timeout_ms);
  * @param context Указатель на структуру парсера.
  * @param byte Принятый байт.
  * @param out_msg Указатель на структуру сообщения для заполнения (может быть NULL).
- * @return Результат обработки:
- *   - PROTO_PARSER_OK: байт обработан, кадр ещё не готов.
- *   - PROTO_PARSER_FRAME_READY: кадр полностью принят и распарсен, out_msg заполнен.
- *   - PROTO_PARSER_ERROR: ошибка (CRC, формат, переполнение).
- *   - PROTO_PARSER_NEED_MORE: ожидание дополнительных данных (промежуточное состояние).
+ * @return Результат обработки байта.
+ * @retval `PROTO_PARSER_OK` - байт обработан, кадр ещё не готов.
+ * @retval `PROTO_PARSER_FRAME_READY` - кадр полностью принят и распарсен, out_msg заполнен.
+ * @retval `PROTO_PARSER_ERROR` - ошибка (CRC, формат, переполнение).
  * @note Если out_msg != NULL и возвращено PROTO_PARSER_FRAME_READY, структура out_msg содержит распарсенное сообщение.
  */
 proto_parser_result_t proto_parser_feed(proto_t *context, uint8_t byte, proto_msg_t *out_msg);
@@ -105,11 +105,10 @@ proto_parser_result_t proto_parser_feed(proto_t *context, uint8_t byte, proto_ms
  * @param byte Принятый байт
  * @param out_msg Указатель на структуру сообщения для заполнения (может быть NULL)
  * @param now_ms Текущее время системы, миллисекунд
- * @return Результат обработки:
- *   - PROTO_PARSER_OK: байт обработан, кадр ещё не готов.
- *   - PROTO_PARSER_FRAME_READY: кадр полностью принят и распарсен, out_msg заполнен.
- *   - PROTO_PARSER_ERROR: ошибка (CRC, формат, переполнение).
- *   - PROTO_PARSER_NEED_MORE: ожидание дополнительных данных (промежуточное состояние).
+ * @return Результат обработки байта.
+ * @retval `PROTO_PARSER_OK` - байт обработан, кадр ещё не готов.
+ * @retval `PROTO_PARSER_FRAME_READY` - кадр полностью принят и распарсен, out_msg заполнен.
+ * @retval `PROTO_PARSER_ERROR` - ошибка (CRC, формат, переполнение).
  * @note Если не задать максимальное время меджу чтением байт, то парсер будет игнорировать обработку времени, что идентично
  * вызову обычной функции proto_parser_feed(...). Если out_msg != NULL и возвращено PROTO_PARSER_FRAME_READY, структура out_msg
  * содержит распарсенное сообщение.
