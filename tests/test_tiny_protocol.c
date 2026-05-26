@@ -27,7 +27,7 @@ int tests_run = 0;
 // Test helpers
 // ============================================================================
 static int compare_msg(const proto_msg_t *a, const proto_msg_t *b) {
-  return (a->sys_id == b->sys_id && a->target_id == b->target_id && a->cmd == b->cmd && a->len == b->len &&
+  return (a->sys_id == b->sys_id && a->target_id == b->target_id && a->msg_id == b->msg_id && a->len == b->len &&
           memcmp(a->data, b->data, a->len) == 0);
 }
 
@@ -67,7 +67,7 @@ static char *test_correct_frame() {
   proto_t parser;
   proto_parser_init(&parser);
 
-  proto_msg_t msg = {.sys_id = 0x01, .target_id = 0x02, .cmd = 0x03, .len = 3, .data = {0x11, 0x22, 0x33}};
+  proto_msg_t msg = {.sys_id = 0x01, .target_id = 0x02, .msg_id = 0x03, .len = 3, .data = {0x11, 0x22, 0x33}};
   uint8_t buffer[PROTO_MAX_FRAME];
   size_t packed_len = proto_pack(&msg, buffer);
   mu_assert("packing should succeed", packed_len > 0);
@@ -96,7 +96,7 @@ static char *test_crc_error() {
 
   // Create a frame with wrong CRC
   uint8_t corrupt_frame[] = {
-      PROTO_SYNC, 0x01, 0x02, 0x03, 0x00, // header, data length = 0
+      PROTO_SYNC, 0x00, 0x01, 0x02, 0x03, // header, data length = 0
       0xFF                                // wrong CRC
   };
 
@@ -117,7 +117,7 @@ static char *test_overflow_data() {
 
   // Frame with data length exceeding maximum
   uint8_t bad_frame[] = {
-      PROTO_SYNC, 0x01, 0x02, 0x03, PROTO_MAX_PAYLOAD + 1 // length > PROTO_MAX_PAYLOAD
+      PROTO_SYNC, PROTO_MAX_PAYLOAD + 1, 0x01, 0x02, 0x03 // length > PROTO_MAX_PAYLOAD
   };
 
   proto_parser_result_t res = proto_parser_feed(&parser, bad_frame[0], NULL);
@@ -143,7 +143,7 @@ static char *test_sync_loss() {
   mu_assert("parser should stay in IDLE", parser.state == PROTO_STATE_IDLE);
 
   // Then feed a correct frame
-  uint8_t frame[] = {PROTO_SYNC, 0x01, 0x02, 0x03, 0x00, 0x00}; // zero data, need correct CRC
+  uint8_t frame[] = {PROTO_SYNC, 0x00, 0x01, 0x02, 0x03, 0x00}; // zero data, need correct CRC
   uint8_t crc = proto_crc8(frame + 1, 4);                       // FROM..LEN
   frame[5] = crc;
 
@@ -270,7 +270,7 @@ static char *test_timeout_disabled_explicitly() {
 
 static char *test_proto_unpack_ok() {
   // Создаём сообщение
-  proto_msg_t original = {.sys_id = 0x12, .target_id = 0x34, .cmd = 0x56, .len = 4, .data = {0xAA, 0xBB, 0xCC, 0xDD}};
+  proto_msg_t original = {.sys_id = 0x12, .target_id = 0x34, .msg_id = 0x56, .len = 4, .data = {0xAA, 0xBB, 0xCC, 0xDD}};
 
   // Упаковываем
   uint8_t buffer[PROTO_MAX_FRAME];
@@ -288,7 +288,7 @@ static char *test_proto_unpack_ok() {
   mu_assert("unpack should return PROTO_PARSER_FRAME_READY", res == PROTO_PARSER_FRAME_READY);
   mu_assert("sys_id mismatch", unpacked.sys_id == original.sys_id);
   mu_assert("target_id mismatch", unpacked.target_id == original.target_id);
-  mu_assert("cmd mismatch", unpacked.cmd == original.cmd);
+  mu_assert("msg_id mismatch", unpacked.msg_id == original.msg_id);
   mu_assert("len mismatch", unpacked.len == original.len);
   mu_assert("data mismatch", memcmp(unpacked.data, original.data, original.len) == 0);
 
@@ -297,7 +297,7 @@ static char *test_proto_unpack_ok() {
 
 static char *test_proto_unpack_zero_payload() {
   // Сообщение без данных
-  proto_msg_t original = {.sys_id = 0x01, .target_id = 0x02, .cmd = 0x03, .len = 0, .data = {}};
+  proto_msg_t original = {.sys_id = 0x01, .target_id = 0x02, .msg_id = 0x03, .len = 0, .data = {}};
 
   uint8_t buffer[PROTO_MAX_FRAME];
   size_t packed_len = proto_pack(&original, buffer);
@@ -320,7 +320,7 @@ static char *test_proto_unpack_max_payload() {
   proto_msg_t original;
   original.sys_id = 0x01;
   original.target_id = 0x02;
-  original.cmd = 0x03;
+  original.msg_id = 0x03;
   original.len = PROTO_MAX_PAYLOAD;
   for (uint8_t i = 0; i < PROTO_MAX_PAYLOAD; i++) {
     original.data[i] = i;
@@ -344,7 +344,7 @@ static char *test_proto_unpack_max_payload() {
 
 static char *test_proto_unpack_invalid_len() {
   // Кадр с длиной > PROTO_MAX_PAYLOAD
-  uint8_t bad_frame[] = {PROTO_SYNC, 0x01, 0x02, 0x03, PROTO_MAX_PAYLOAD + 1, // длина слишком велика
+  uint8_t bad_frame[] = {PROTO_SYNC, PROTO_MAX_PAYLOAD + 1, 0x01, 0x02, 0x03, // длина слишком велика
                          0x00, // dummy data, но CRC уже не важен, так как проверка длины раньше
                          0x00};
   // Вычислим CRC, но он не должен проверяться, если длина невалидна
@@ -363,7 +363,7 @@ static char *test_proto_unpack_invalid_len() {
 
 static char *test_proto_unpack_crc_error() {
   // Кадр с правильной длиной, но неверной CRC
-  proto_msg_t original = {.sys_id = 0x01, .target_id = 0x02, .cmd = 0x03, .len = 2, .data = {0x11, 0x22}};
+  proto_msg_t original = {.sys_id = 0x01, .target_id = 0x02, .msg_id = 0x03, .len = 2, .data = {0x11, 0x22}};
   uint8_t buffer[PROTO_MAX_FRAME];
   size_t packed_len = proto_pack(&original, buffer);
 

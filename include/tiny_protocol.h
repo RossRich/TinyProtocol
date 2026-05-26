@@ -11,34 +11,38 @@
 
 #define PROTO_SYNC        0xAA
 #define PROTO_MAX_FRAME   32U
-#define PROTO_MAX_HEADER  5U // SYNC | SYS_ID | TARGET_ID | CMD | LEN
+#define PROTO_MAX_HEADER  5U // SYNC | LEN | SYS_ID | TARGET_ID | MSG_ID
 #define PROTO_CRC_SIZE    1U
 #define PROTO_MAX_PAYLOAD (PROTO_MAX_FRAME - PROTO_MAX_HEADER - PROTO_CRC_SIZE)
 
-// [SYNC][SYS_ID][TARGET_ID][CMD][LEN][DATA...][CRC]
+// [SYNC][LEN][SYS_ID][TARGET_ID][MSG_ID][DATA...][CRC]
 #define PROTO_SYNC_POS      0U
-#define PROTO_SYS_ID_POS    1U
-#define PROTO_TARGET_ID_POS 2U
-#define PROTO_CMD_POS       3U
-#define PROTO_LEN_POS       4U
+#define PROTO_LEN_POS       1U
+#define PROTO_SYS_ID_POS    2U
+#define PROTO_TARGET_ID_POS 3U
+#define PROTO_MSG_ID_POS    4U
 #define PROTO_PAYLOAD_POS   5U
 
-#define ADDR_BROADCAST 0xFF
+#define PROTO_ADDR_BROADCAST 0xFF
 
-typedef uint8_t proto_cmd_t;
+// Маски для битов MSG_ID
+#define PROTO_MSG_ID_MASK       0x7F  // Младшие 7 бит - идентификатор сообщения (0-127)
+#define PROTO_FLAG_ACK          (1 << 7)  // Старший бит - флаг ACK
+
+typedef uint8_t proto_msg_id_t;
 
 typedef struct {
+    uint8_t len;                     // Длина поля data
     uint8_t sys_id;                  // Кто отправляет
     uint8_t target_id;               // Кому отправляем
-    proto_cmd_t cmd;                 // Команда
-    uint8_t len;                     // Длина поля data
-    uint8_t data[PROTO_MAX_PAYLOAD]; // Параметры cmd
+    proto_msg_id_t msg_id;           // Идентификатор сообщения (бит7=ACK, биты0-6=ID)
+    uint8_t data[PROTO_MAX_PAYLOAD]; // Полезная нагрузка
 } proto_msg_t;
 
 // Парсер потока (конечный автомат)
 typedef enum {
   PROTO_STATE_IDLE,   // Ожидание SYNC
-  PROTO_STATE_HEADER, // Чтение заголовка (FROM, TO, CMD, LEN)
+  PROTO_STATE_HEADER, // Чтение заголовка (LEN, SYS_ID, TARGET_ID, MSG_ID)
   PROTO_STATE_DATA,   // Чтение данных
   PROTO_STATE_CRC,    // Чтение CRC
 } proto_parser_state_t;

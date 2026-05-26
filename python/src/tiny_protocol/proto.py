@@ -21,20 +21,20 @@ def proto_crc8(data: bytes) -> int:
   return crc
 
 
-def proto_pack(from_addr: int, to_addr: int, cmd: int, data: bytes = b'') -> bytes:
+def proto_pack(from_addr: int, to_addr: int, msg_id: int, data: bytes = b'') -> bytes:
   """
   Сериализует параметры сообщения в бинарный пакет протокола для передачи по UART.
 
   Формат пакета (бинарный, little-endian не требуется, так как поля <= 1 байта):
-      [SYNC (1)] [FROM (1)] [TO (1)] [CMD (1)] [LEN (1)] [DATA (0..26)] [CRC8 (1)]
+      [SYNC (1)] [LEN (1)] [FROM (1)] [TO (1)] [MSG_ID (1)] [DATA (0..26)] [CRC8 (1)]
 
   Args:
       from_addr (int): Адрес отправителя (0x01–0xFE).
                         Значение 0x00 зарезервировано, 0xFF — broadcast.
       to_addr (int): Адрес получателя (0x01–0xFE).
                       Используйте 0xFF для широковещательной рассылки.
-      cmd (int): Идентификатор команды (0x00–0xFF).
-                  Определяет действие (например, 0x10 = SET_RELAY).
+      msg_id (int): Идентификатор сообщения (0x00–0xFF).
+                    Бит7 = флаг ACK, биты0-6 = ID сообщения.
       data (bytes): Полезная нагрузка (аргументы команды).
                     Максимальный размер: 26 байт.
                     Если аргументов нет, оставьте пустым (b'').
@@ -44,7 +44,7 @@ def proto_pack(from_addr: int, to_addr: int, cmd: int, data: bytes = b'') -> byt
               Длина пакета варьируется от 6 (без данных) до 32 байт (макс. данные).
 
   Raises:
-      ProtoError: Если адреса или команда выходят за диапазон 0–255.
+      ProtoError: Если адреса или msg_id выходят за диапазон 0–255.
       ProtoError: Если длина `data` превышает 26 байт (лимит буфера приема).
 
   Example:
@@ -62,21 +62,21 @@ def proto_pack(from_addr: int, to_addr: int, cmd: int, data: bytes = b'') -> byt
     raise ProtoError(f"Invalid FROM address: {from_addr}")
   if not (0 <= to_addr <= 255):
     raise ProtoError(f"Invalid TO address: {to_addr}")
-  if not (0 <= cmd <= 255):
-    raise ProtoError(f"Invalid CMD: {cmd}")
-  if len(data) > proto.PROTO_MAX_DATA:
-    raise ProtoError(f"Data too long: {len(data)} > {proto.PROTO_MAX_DATA}")
+  if not (0 <= msg_id <= 255):
+    raise ProtoError(f"Invalid MSG_ID: {msg_id}")
+  if len(data) > proto.PROTO_MAX_PAYLOAD_SIZE:
+    raise ProtoError(f"Data too long: {len(data)} > {proto.PROTO_MAX_PAYLOAD_SIZE}")
 
   # 1. Формируем тело пакета без CRC
   pkt = bytearray()
   pkt.append(proto.PROTO_SYNC)
+  pkt.append(len(data))
   pkt.append(from_addr)
   pkt.append(to_addr)
-  pkt.append(cmd)
-  pkt.append(len(data))
+  pkt.append(msg_id)
   pkt.extend(data)
 
-  # 2. Считаем CRC по полям FROM..DATA (пропускаем SYNC)
+  # 2. Считаем CRC по полям LEN..DATA (пропускаем SYNC)
   crc = proto_crc8(pkt[1:])
   pkt.append(crc)
 
@@ -89,17 +89,17 @@ def proto_pack_msg(msg: proto.ProtoMsg) -> bytes:
   Сериализует объект ProtoMsg в бинарный пакет.
 
   Args:
-      msg: Структурированное сообщение (адреса, команда, полезная нагрузка).
+      msg: Структурированное сообщение (адреса, идентификатор, полезная нагрузка).
 
   Returns:
-      bytes: Готовый байтовый массив формата [SYNC][FROM][TO][CMD][LEN][DATA][CRC].
+      bytes: Готовый байтовый массив формата [SYNC][LEN][FROM][TO][MSG_ID][DATA][CRC].
 
   Note:
       Обёртка над proto_pack(). Позволяет передавать объект напрямую,
       без ручного извлечения полей. Идеально для очередей и колбэков.
   """
 
-  return proto_pack(from_addr=msg.from_addr, to_addr=msg.to_arrd, cmd=msg.cmd, data=msg.data)
+  return proto_pack(from_addr=msg.from_addr, to_addr=msg.to_arrd, msg_id=msg.msg_id, data=msg.data)
 
 
 def proto_unpack(proto_cnt: proto.Proto) -> proto.ProtoMsg:
@@ -113,7 +113,7 @@ def proto_unpack(proto_cnt: proto.Proto) -> proto.ProtoMsg:
   Args:
       proto_cnt (proto.Proto): Контейнер с разобранным байтовым потоком.
           Ожидается следующая структура атрибутов:
-          - header: Список/байты заголовка [FROM, TO, CMD, LEN].
+          - header: Список/байты заголовка [LEN, FROM, TO, MSG_ID].
           - data: Полезная нагрузка (0..26 байт).
           - crc: Целое число (байт контрольной суммы).
 
@@ -121,12 +121,12 @@ def proto_unpack(proto_cnt: proto.Proto) -> proto.ProtoMsg:
       proto.ProtoMsg: Объект сообщения с полями:
           - from_addr (int): Адрес отправителя
           - to_addr (int): Адрес получателя
-          - cmd (int): Код команды
+          - msg_id (int): Идентификатор сообщения
           - data (bytes): Полезная нагрузка (гарантированно неизменяемая)
 
   Raises:
       ProtoError: Если `header` отсутствует или пуст.
-      ProtoError: Если длина данных превышает `proto.PROTO_MAX_DATA`.
+      ProtoError: Если длина данных превышает `proto.PROTO_MAX_PAYLOAD_SIZE`.
       ProtoError: Если контрольная сумма не совпадает (пакет повреждён или потерян).
 
   Example:
@@ -149,8 +149,8 @@ def proto_unpack(proto_cnt: proto.Proto) -> proto.ProtoMsg:
     raise ProtoError("Invalid header: missing or empty")
 
   data_len = proto_cnt.header[proto.PROTO_LEN_POS]
-  if data_len > proto.PROTO_MAX_DATA:
-    raise ProtoError(f"Data too long: {data_len} > {proto.PROTO_MAX_DATA}")
+  if data_len > proto.PROTO_MAX_PAYLOAD_SIZE:
+    raise ProtoError(f"Data too long: {data_len} > {proto.PROTO_MAX_PAYLOAD_SIZE}")
 
   crc_payload = bytes(proto_cnt.header[1:]) + bytes(proto_cnt.data)
   crc = proto_crc8(crc_payload)
@@ -159,9 +159,9 @@ def proto_unpack(proto_cnt: proto.Proto) -> proto.ProtoMsg:
 
   from_addr = proto_cnt.header[proto.PROTO_SYS_ID_POS]
   to_addr = proto_cnt.header[proto.PROTO_TARGET_ID_POS]
-  cmd = proto_cnt.header[proto.PROTO_CMD_POS]
+  msg_id = proto_cnt.header[proto.PROTO_MSG_ID_POS]
 
-  return proto.ProtoMsg(from_addr, to_addr, cmd, bytes(proto_cnt.data))
+  return proto.ProtoMsg(from_addr, to_addr, msg_id, bytes(proto_cnt.data))
 
 
 class ProtoParser():
@@ -192,11 +192,11 @@ class ProtoParser():
     if sync_idx > 0:
       del self._raw_bytes[0:sync_idx]
 
-    if len(self._raw_bytes) < proto.PROTO_MAX_HEADER:
+    if len(self._raw_bytes) < proto.PROTO_HEADER_SIZE:
       return ProtoParser.MISSING_STREAM
 
     data_len = self._raw_bytes[proto.PROTO_LEN_POS]
-    if data_len > proto.PROTO_MAX_DATA:
+    if data_len > proto.PROTO_MAX_PAYLOAD_SIZE:
       # не верный заголовок
       new_sync_idx = self._raw_bytes.find(proto.PROTO_SYNC, 1)
       if new_sync_idx != -1:
@@ -205,14 +205,14 @@ class ProtoParser():
         self._raw_bytes.clear()
       return ProtoParser.MISSING_STREAM
 
-    frame_len = proto.PROTO_MAX_HEADER + data_len + 1
+    frame_len = proto.PROTO_HEADER_SIZE + data_len + 1
     if len(self._raw_bytes) < frame_len:
       # обрывок пакета
       # TODO: добавить таймер
       return ProtoParser.MISSING_STREAM
 
-    header = self._raw_bytes[:proto.PROTO_MAX_HEADER]
-    data = self._raw_bytes[proto.PROTO_MAX_HEADER:proto.PROTO_MAX_HEADER + data_len]
+    header = self._raw_bytes[:proto.PROTO_HEADER_SIZE]
+    data = self._raw_bytes[proto.PROTO_HEADER_SIZE:proto.PROTO_HEADER_SIZE + data_len]
     crc = self._raw_bytes[frame_len - 1]
     proto_frame = proto.Proto(header=header, data=data, crc=crc)
     self._frame.append(proto_frame)

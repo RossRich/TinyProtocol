@@ -24,12 +24,12 @@ size_t proto_pack(const proto_msg_t *msg, uint8_t *out_buf) {
 
   uint8_t idx = 0;
   out_buf[idx++] = PROTO_SYNC;
+  out_buf[idx++] = msg->len;
   out_buf[idx++] = msg->sys_id;
   out_buf[idx++] = msg->target_id;
-  out_buf[idx++] = msg->cmd;
-  out_buf[idx++] = msg->len;
+  out_buf[idx++] = msg->msg_id;
   memcpy(out_buf + PROTO_PAYLOAD_POS, msg->data, msg->len);
-  out_buf[PROTO_PAYLOAD_POS + msg->len] = proto_crc8(out_buf + 1, (PROTO_PAYLOAD_POS - 1) + msg->len); // CRC по FROM..DATA
+  out_buf[PROTO_PAYLOAD_POS + msg->len] = proto_crc8(out_buf + 1, (PROTO_PAYLOAD_POS - 1) + msg->len); // CRC по LEN..DATA
 
   return PROTO_MAX_HEADER + msg->len + PROTO_CRC_SIZE; // header + data + crc
 }
@@ -54,7 +54,7 @@ proto_parser_result_t proto_unpack(const proto_t *context, proto_msg_t *out_msg)
 
   out_msg->sys_id = context->buffer[PROTO_SYS_ID_POS];
   out_msg->target_id = context->buffer[PROTO_TARGET_ID_POS];
-  out_msg->cmd = context->buffer[PROTO_CMD_POS];
+  out_msg->msg_id = context->buffer[PROTO_MSG_ID_POS];
   out_msg->len = context->buffer[PROTO_LEN_POS];
   memcpy(out_msg->data, context->buffer + PROTO_PAYLOAD_POS, msg_payload_len);
 
