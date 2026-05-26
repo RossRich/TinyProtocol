@@ -53,7 +53,7 @@ static char *test_parser_reset() {
   proto_t parser;
   proto_parser_init(&parser);
   // Simulate partial parsing
-  parser.state = PROTO_STATE_HEADER;
+  parser.state = PROTO_STATE_DATA;
   parser.pos = 3;
   parser.expected_len = 10;
   proto_parser_reset(&parser);
@@ -122,14 +122,10 @@ static char *test_overflow_data() {
 
   proto_parser_result_t res = proto_parser_feed(&parser, bad_frame[0], NULL);
   mu_assert("SYNC should be accepted", res == PROTO_PARSER_OK);
-  for (size_t i = 1; i < sizeof(bad_frame); ++i) {
-    res = proto_parser_feed(&parser, bad_frame[i], NULL);
-    if (i == 4) { // after receiving length
-      mu_assert("excessive length should cause ERROR", res == PROTO_PARSER_ERROR);
-      mu_assert("parser should be in ERROR state", parser.state == PROTO_STATE_IDLE);
-      break;
-    }
-  }
+  res = proto_parser_feed(&parser, bad_frame[1], NULL);
+  mu_assert("excessive length should cause ERROR", res == PROTO_PARSER_ERROR);
+  mu_assert("parser should be in ERROR state", parser.state == PROTO_STATE_IDLE);
+
   return 0;
 }
 
@@ -169,7 +165,7 @@ static char *test_timeout_disabled_by_default() {
   // Передаем SYNC, затем долгую паузу (имитируем вызовом feed_timed с большим now_ms)
   uint32_t t0 = millis();
   proto_parser_feed_timed(&parser, PROTO_SYNC, NULL, t0);
-  mu_assert("state should be HEADER after SYNC", parser.state == PROTO_STATE_HEADER);
+  mu_assert("state should be CHECK_SIZE after SYNC", parser.state == PROTO_STATE_CHECK_SIZE);
 
   // Имитируем паузу 1 секунду
   uint32_t t1 = t0 + 1000;
@@ -187,17 +183,17 @@ static char *test_timeout_no_reset_if_fast() {
 
   uint32_t t0 = millis();
   proto_parser_feed_timed(&parser, PROTO_SYNC, NULL, t0);
-  mu_assert("state HEADER", parser.state == PROTO_STATE_HEADER);
+  mu_assert("state CHECK_SIZE", parser.state == PROTO_STATE_CHECK_SIZE);
 
   // Быстрая отправка следующих байтов (менее чем через 100 мс)
   uint32_t t1 = t0 + 50;
   proto_parser_feed_timed(&parser, 0x01, NULL, t1);
-  mu_assert("state should still be HEADER (not reset)", parser.state == PROTO_STATE_HEADER);
+  mu_assert("state should still be DATA (not reset)", parser.state == PROTO_STATE_DATA);
 
   // Еще один быстрый байт
   uint32_t t2 = t1 + 30;
   proto_parser_feed_timed(&parser, 0x02, NULL, t2);
-  mu_assert("state should still be HEADER", parser.state == PROTO_STATE_HEADER);
+  mu_assert("state should still be DATA", parser.state == PROTO_STATE_DATA);
   return 0;
 }
 
@@ -211,7 +207,7 @@ static char *test_timeout_reset_on_slow_bytes() {
 
   uint32_t t0 = millis();
   proto_parser_feed_timed(&parser, PROTO_SYNC, NULL, t0);
-  mu_assert("state should still be HEADER", parser.state == PROTO_STATE_HEADER);
+  mu_assert("state should still be CHECK_SIZE", parser.state == PROTO_STATE_CHECK_SIZE);
 
   // Долгая пауза > 100 мс
   uint32_t t1 = t0 + timeout + timeout;
@@ -232,7 +228,7 @@ static char *test_timeout_reset_on_long_pause_before_next_byte() {
 
   uint32_t t0 = millis();
   proto_parser_feed_timed(&parser, PROTO_SYNC, NULL, t0);
-  mu_assert("state HEADER", parser.state == PROTO_STATE_HEADER);
+  mu_assert("state CHECK_SIZE", parser.state == PROTO_STATE_CHECK_SIZE);
   mu_assert("last_byte_time_ms set", parser.last_byte_time_ms == t0);
 
   // Имитируем паузу больше таймаута, затем передаем следующий байт
@@ -254,13 +250,13 @@ static char *test_timeout_disabled_explicitly() {
 
   uint32_t t0 = millis();
   proto_parser_feed_timed(&parser, PROTO_SYNC, NULL, t0);
-  mu_assert("state HEADER", parser.state == PROTO_STATE_HEADER);
+  mu_assert("state CHECK_SIZE", parser.state == PROTO_STATE_CHECK_SIZE);
 
   // Долгая пауза
   uint32_t t1 = t0 + 500;
   proto_parser_feed_timed(&parser, 0x01, NULL, t1);
   // Таймаут отключен, сброса не будет
-  mu_assert("state should still be HEADER", parser.state == PROTO_STATE_HEADER);
+  mu_assert("state should still be DATA", parser.state == PROTO_STATE_DATA);
   return 0;
 }
 
@@ -270,7 +266,7 @@ static char *test_timeout_disabled_explicitly() {
 
 static char *test_proto_unpack_ok() {
   // Создаём сообщение
-  proto_msg_t original = {.sys_id = 0x12, .target_id = 0x34, .msg_id = 0x56, .len = 4, .data = {0xAA, 0xBB, 0xCC, 0xDD}};
+  proto_msg_t original = {.len = 4, .sys_id = 0x12, .target_id = 0x34, .msg_id = 0x56, .data = {0xAA, 0xBB, 0xCC, 0xDD}};
 
   // Упаковываем
   uint8_t buffer[PROTO_MAX_FRAME];
@@ -363,7 +359,7 @@ static char *test_proto_unpack_invalid_len() {
 
 static char *test_proto_unpack_crc_error() {
   // Кадр с правильной длиной, но неверной CRC
-  proto_msg_t original = {.sys_id = 0x01, .target_id = 0x02, .msg_id = 0x03, .len = 2, .data = {0x11, 0x22}};
+  proto_msg_t original = {.len = 2, .sys_id = 0x01, .target_id = 0x02, .msg_id = 0x03, .data = {0x11, 0x22}};
   uint8_t buffer[PROTO_MAX_FRAME];
   size_t packed_len = proto_pack(&original, buffer);
 

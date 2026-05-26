@@ -26,8 +26,8 @@
 #define PROTO_ADDR_BROADCAST 0xFF
 
 // Маски для битов MSG_ID
-#define PROTO_MSG_ID_MASK       0x7F  // Младшие 7 бит - идентификатор сообщения (0-127)
-#define PROTO_FLAG_ACK          (1 << 7)  // Старший бит - флаг ACK
+#define PROTO_MSG_ID_MASK 0x7F     // Младшие 7 бит - идентификатор сообщения (0-127)
+#define PROTO_FLAG_ACK    (1 << 7) // Старший бит - флаг ACK
 
 typedef uint8_t proto_msg_id_t;
 
@@ -41,10 +41,10 @@ typedef struct {
 
 // Парсер потока (конечный автомат)
 typedef enum {
-  PROTO_STATE_IDLE,   // Ожидание SYNC
-  PROTO_STATE_HEADER, // Чтение заголовка (LEN, SYS_ID, TARGET_ID, MSG_ID)
-  PROTO_STATE_DATA,   // Чтение данных
-  PROTO_STATE_CRC,    // Чтение CRC
+  PROTO_STATE_IDLE,       // Ожидание SYNC
+  PROTO_STATE_CHECK_SIZE, // Чтение длины данных пакета
+  PROTO_STATE_DATA,       // Чтение SYS_ID, TARGET_ID, MSG_ID, DATA
+  PROTO_STATE_CRC,        // Чтение CRC
 } proto_parser_state_t;
 
 // Результат обработки байта

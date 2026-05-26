@@ -105,24 +105,18 @@ proto_parser_result_t proto_parser_feed(proto_t *context, uint8_t byte, proto_ms
       proto_parser_reset(context);
       context->buffer[0] = byte;
       context->pos = 1;
-      context->state = PROTO_STATE_HEADER;
+      context->state = PROTO_STATE_CHECK_SIZE;
     }
     break;
 
-  case PROTO_STATE_HEADER:
+  case PROTO_STATE_CHECK_SIZE:
     context->buffer[context->pos++] = byte;
-    if (context->pos == PROTO_PAYLOAD_POS) {
-      // Все байты заголовка получены, извлекаем LEN
-      context->expected_len = context->buffer[PROTO_LEN_POS];
-      if (context->expected_len > PROTO_MAX_PAYLOAD) {
-        context->state = PROTO_STATE_IDLE;
-        parse_res = PROTO_PARSER_ERROR;
-      } else if (context->expected_len == 0) {
-        // Нет данных, переходим к ожиданию CRC
-        context->state = PROTO_STATE_CRC;
-      } else {
-        context->state = PROTO_STATE_DATA;
-      }
+    context->expected_len = context->buffer[PROTO_LEN_POS];
+    if (context->expected_len > PROTO_MAX_PAYLOAD) {
+      context->state = PROTO_STATE_IDLE;
+      parse_res = PROTO_PARSER_ERROR;
+    } else {
+      context->state = PROTO_STATE_DATA;
     }
     break;
 
